@@ -77,6 +77,7 @@ $cwd = (IS_WIN ? str_replace('\\', '/', getcwd()) : getcwd());
 /* Download file */
 if (isset($_GET['d']) && isset($_GET['l']))
 {
+	$file = $cwd .'/'. $_GET['l'];
 	$content_type = function_exists('mime_content_type') ? mime_content_type($_GET['l']) : 'application/octet-stream';
 	header('Content-Type: '. $content_type);
 	header('Content-disposition: attachment; filename='. basename($_GET['l']));
