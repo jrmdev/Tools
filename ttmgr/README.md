@@ -50,6 +50,29 @@ The tunnel stays alive even after ttmgr was quit. After your work is finished, y
 	** Tunnel to accounts.google.com:443 terminated
 	user@host:~$
 
+
+As another exemple usage, TTMGR can be used to proxify connections for any arbitrary TCP protocol. For example, if you want to connect to an IRC server over SSL through your corporate proxy:
+
+	user@host:~$ python ttmgr.py proxy add proxy.mycompany.com 3128
+	user@host:~$ python ttmgr.py proxy list
+	[0] No proxy (direct connection)
+	[1] proxy.mycompany.com:3128 
+
+Then create the tunnel:
+
+	user@host:~$ python ttmgr.py tunnel add 1 kornbluth.freenode.net 6697
+	** Tunnel to kornbluth.freenode.net:6697 started
+	user@host:~$ python ttmgr.py tunnel list
+	[1] kornbluth.freenode.net:6697    > LOCAL <-> PROXY proxy.mycompany.com:3128 <-> DEST kornbluth.freenode.net:6697
+
+From now on, any connection from your machine to kornbluth.freenode.net:6697 will be tunnelled through the proxy:
+
+	user@host:~$ socat - OPENSSL:kornbluth.freenode.net:6697,verify=0
+	:kornbluth.freenode.net NOTICE * :*** Looking up your hostname...
+	:kornbluth.freenode.net NOTICE * :*** Checking Ident
+	:kornbluth.freenode.net NOTICE * :*** Found your hostname
+	^C
+
 To see the actual socat running processes and iptables rules, run ttmgr as follows:
 
 	user@host:~$ python ttmgr.py debug
