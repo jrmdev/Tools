@@ -3,6 +3,8 @@ TTMGR - Transparent Tunnel Manager
 
 TTMGR is a python script aimed at simplifying management of transparent tunnels. It allows to transparently redirect TCP sessions over a proxy. It transparently proxifies outgoing TCP streams from your machine, adding proxy support for any host:port couple for applications that don't have proxy support.
 
+You don't have to enable IP forwarding or modify your hosts file.
+
 It makes use of iptables and socat and runs under Linux.
 
 To use it, your user must have permission to run iptables through sudo. As root, run the following command prior to using ttmgr:
@@ -41,6 +43,7 @@ ttmgr> tunnel list
 ttmgr> exit
 Quitting.
 ```
+At this point, any direct connection that your system wants to make to accounts.google.com:443 will be transparently relayed to a localport, then forwarded to the specified proxy and finally routed to its real destination.
 
 The tunnel stays alive even after ttmgr was quit. After your work is finished, you can terminate your tunnel like this:
 
