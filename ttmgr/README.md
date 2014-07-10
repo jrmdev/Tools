@@ -1,18 +1,18 @@
 TTMGR - Transparent Tunnel Manager
 ==================================
 
-TTMR is a python script aimed at simplifying management of transparent tunnels. It allows to transparently redirect network streams over a proxy. It transparently proxifies outgoing streams from your machine, adding proxy support for any host:port couple for application that don't have proxy support.
+TTMGR is a python script aimed at simplifying management of transparent tunnels. It allows to transparently redirect TCP sessions over a proxy. It transparently proxifies outgoing TCP streams from your machine, adding proxy support for any host:port couple for applications that don't have proxy support.
 
 It makes use of iptables and socat and runs under Linux.
 
 To use it, your user must have permission to run iptables through sudo. As root, run the following command prior to using ttmgr:
 
-	echo "$USER ALL=NOPASSWD: /sbin/iptables" >> /etc/sudoers
+	echo "<USER> ALL=NOPASSWD: /sbin/iptables" >> /etc/sudoers
 
 Example usage
 -------------
 
-Suppose you have a thin/thick client connecting to *https://accounts.google.com* without proxy support. you may use ttgr as follows to perform *man-in-the-middle* using an http interception proxy.
+Suppose you have a thin/thick client connecting to *https://accounts.google.com* without proxy support. you may use ttmgr as follows to perform *man-in-the-middle* using an http interception proxy, or simply to give it network access.
 
 - Create a proxy configuration
 - Enable usage of this proxy
@@ -26,25 +26,18 @@ TTMGR is a Transparent Tunnel Manager
 For module-specific help, type "help <module>"
 Use ".." to move to upper level
 
-- config          manipulate configuration
 - proxy           manipulate proxy list
 - tunnel          manipulate tunnels
 - sh              run shell commands
 
 ttmgr> proxy add 127.0.0.1 8080
 ttmgr> proxy list
-[1] 127.0.0.1:8080  
-ttmgr> proxy use 1
-proxy.number = 1
-ttmgr> config set proxy.enabled True
-proxy.enabled = True
-ttmgr> config show
-proxy.enabled	=> True
-proxy.number	=> 1
-ttmgr> tunnel add accounts.google.com 443
+[0] No proxy (direct connection)
+[1] 127.0.0.1:8080
+ttmgr> tunnel add 1 accounts.google.com 443
 ** Tunnel to accounts.google.com:443 started
 ttmgr> tunnel list
-[1] accounts.google.com:443 >>> PROXY localhost:8080 <-> DEST accounts.google.com:443
+[1] accounts.google.com:443       > LOCAL <-> PROXY localhost:8080 <-> DEST accounts.google.com:443
 ttmgr> exit
 Quitting.
 ```
@@ -52,7 +45,7 @@ Quitting.
 The tunnel stays alive even after ttmgr was quit. After your work is finished, you can terminate your tunnel like this:
 
 	user@host:~$ python ttmgr.py tunnel list
-	[1] accounts.google.com:443 >>> PROXY localhost:8080 <-> DEST accounts.google.com:443
+	[1] accounts.google.com:443       > LOCAL <-> PROXY localhost:8080 <-> DEST accounts.google.com:443
 	user@host:~$ python ttmgr.py tunnel del 1
 	** Tunnel to accounts.google.com:443 terminated
 	user@host:~$
