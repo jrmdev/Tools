@@ -2,9 +2,9 @@ import sys
 import os
 import sqlite3
 import subprocess
-from cmd import	Cmd
 import socket
-from pprint	import pprint
+from cmd import	Cmd
+from pprint import pprint
 
 class bcolors:
 	HDR = '\033[95m'
@@ -23,50 +23,20 @@ def err(str):
 def ok(str):
 	print bcolors.OK + "** %s" % str + bcolors.ENDC
 
-def	config_load():
+def	db_load():
 	try:
-		_db.execute('select id from config')
+		_db.execute('select id from proxies')
 
 	except sqlite3.OperationalError:
-		_db.execute("CREATE TABLE config (id INTEGER PRIMARY KEY AUTOINCREMENT, type CHAR(8), key CHAR(128), val CHAR(128));")
 		_db.execute("CREATE TABLE proxies (id INTEGER PRIMARY KEY AUTOINCREMENT, host CHAR(64), port INTEGER, username CHAR(64), password CHAR(64));")
-		_db.execute("INSERT INTO config (type, key, val) VALUES ('bool', 'proxy.enabled', 'False');")
-		_db.execute("INSERT INTO config (type, key, val) VALUES ('int', 'proxy.number', '0');")
 		_db.commit()
-
-def config_get(key):
-
-	cursor = _db.cursor()
-	res = cursor.execute("SELECT type, val FROM config WHERE key=?", (key, )).fetchone()
-
-	if res is not None:
-		return typeval(res[0], res[1])
-
-	return None
-
-def config_set(key, val):
-
-	if config_get(key) is not None:
-
-		cursor = _db.cursor()
-		type = cursor.execute("SELECT type FROM config WHERE key=?", (key,)).fetchone()
-
-		tv = typeval(type[0], val)
-
-		_db.execute("UPDATE config SET val=? WHERE key=?", (str(tv), key))
-		_db.commit()
-
-		print "%s = %s" % (key, tv)
-
-	else:
-		print "** %s: configuration setting not found" % key
 
 def find_free_port():
 	s = socket.socket()
 	s.bind(('', 0))
 	name = s.getsockname()
 	s.close()
-	
+
 	return int(name[1])
 
 def proxy_exists(num):
@@ -149,18 +119,18 @@ def get_tunnel_list():
 			dh = addr2[1]
 			dp = int(addr2[2])
 
-			descr = 'DIRECT %s:%d' % (n, dh, dp)
+			descr = 'LOCAL <-> DEST %s:%d' % (dh, dp)
 
 		else:
 			dh = addr2[2]
 			dp = int(addr2[3])
-			
+
 			ph = addr2[1]
 			pp = int(addr2[4].split('=')[1])
 
-			descr = 'PROXY %s:%d <-> DEST %s:%d' % (ph, pp, dh, dp)
+			descr = 'LOCAL <-> PROXY %s:%d <-> DEST %s:%d' % (ph, pp, dh, dp)
 
-		descr = '%s:%d >>> %s' % (dh, dp, descr)
+		descr = '%-30s > %s' % (str(dh) +':'+ str(dp), descr)
 
 		if not ret.has_key(lp):
 			ret[lp] = []
@@ -179,7 +149,7 @@ def del_iptables_rules(localport):
 
 	return
 
-class CrappyPrompt(Cmd):
+class TtmgrPrompt(Cmd):
 
 	level = 1
 	module = []
@@ -188,37 +158,13 @@ class CrappyPrompt(Cmd):
 	undoc_header = 'Available commands (no help available)'
 	ruler = ''
 
-	def	do_config(self, args):
-		if args:
-			args = args.split()
-
-			if args[0] == 'show':
-				for row in _db.execute("SELECT * FROM config"):
-					print "%s\t=> %s" % (row[2], row[3])
-		
-			elif args[0] == 'set':
-				if len(args) == 3:
-					config_set(args[1], args[2])
-				else: warn("usage: config set <key> <value>")
-
-			elif args[0] == 'unset':
-				if len(args) == 2:
-					config_set(args[1], '')
-
-				else: warn("usage: config unset <key>")
-
-			elif args[0] == 'help':
-				self.help_config()
-			
-			else: err("config: incorrect syntax")
-		else: self.singlecmd('config')
-
 	def	do_proxy(self, args):
 		if args:
 			args = args.split()
 
 			if args[0] == 'list':
 
+				print "[0] No proxy (direct connection)"
 				for row in _db.execute("SELECT * FROM proxies"):
 					print "[%d] %s:%i %s %s" % (row[0], row[1], row[2], \
 						"   username: "+row[3] if row[3] else "", \
@@ -242,13 +188,6 @@ class CrappyPrompt(Cmd):
 						_db.commit()
 					else: err("proxy del: no proxy with this number")
 				else: warn("usage: proxy del <number>")
-
-			elif args[0] == 'use':
-				if len(args) == 2:
-					if proxy_exists(args[1]):
-						config_set('proxy.number', typeval('int', args[1]))
-					else: err("proxy use: no proxy with this number")
-				else: print warn("usage: proxy use <number>")
 
 			elif args[0] == 'set':
 				if len(args) >= 3:
@@ -280,8 +219,10 @@ class CrappyPrompt(Cmd):
 					print '[%d] %s' % (k, v)
 
 			elif args[0] == 'add':
-				if len(args) == 3:
-					port = typeval('int', args[2])
+				if len(args) == 4:
+					proxy_number = typeval('int', args[1])
+					host = str(args[2])
+					port = typeval('int', args[3])
 					localport = find_free_port()
 
 					# create socat instance with or w/o proxy
@@ -289,28 +230,27 @@ class CrappyPrompt(Cmd):
 					# ps -eao pid,cmd | grep [s]ocat ; sudo iptables -S OUTPUT -t nat | grep -v ^\-P
 
 					# if a proxy is to be used for this tunnel
-					if (config_get('proxy.enabled') == True):
-						proxy_id = config_get('proxy.number')
-						proxy_host, proxy_port, proxy_user, proxy_pass = proxy_get(proxy_id)
+					if proxy_number is not 0:
+						proxy_host, proxy_port, proxy_user, proxy_pass = proxy_get(proxy_number)
 
 						if proxy_user != None:
-							os.system("/usr/bin/socat TCP4-LISTEN:%d,bind=127.0.0.1,reuseaddr,fork PROXY:%s:%s:%d,proxyport=%d,proxyauth=%s:%s &" % (localport, proxy_host, args[1], port, proxy_port, proxy_user, proxy_pass))
+							os.system("/usr/bin/socat TCP4-LISTEN:%d,bind=127.0.0.1,reuseaddr,fork PROXY:%s:%s:%d,proxyport=%d,proxyauth=%s:%s &" % (localport, proxy_host, host, port, proxy_port, proxy_user, proxy_pass))
 						else:
-							os.system("/usr/bin/socat TCP4-LISTEN:%d,bind=127.0.0.1,reuseaddr,fork PROXY:%s:%s:%d,proxyport=%d &" % (localport, proxy_host, args[1], port, proxy_port))
+							os.system("/usr/bin/socat TCP4-LISTEN:%d,bind=127.0.0.1,reuseaddr,fork PROXY:%s:%s:%d,proxyport=%d &" % (localport, proxy_host, host, port, proxy_port))
 					
 					# Direct connection
 					else:
-						os.system("/usr/bin/socat TCP4-LISTEN:%d,bind=127.0.0.1,reuseaddr,fork TCP:%s:%d &" % (localport, args[1], port))
+						os.system("/usr/bin/socat TCP4-LISTEN:%d,bind=127.0.0.1,reuseaddr TCP:%s:%d &" % (localport, host, port))
 
 					# if the socat instance is listening correctly,
 					# create the iptables traffic interception rule
 					if get_socat_pid(localport):
-						os.system("sudo /sbin/iptables -t nat -A OUTPUT -p tcp -d %s --dport %d -j DNAT --to-destination 127.0.0.1:%d -m comment --comment 'ttmgr:%d'" % (args[1], port, localport, localport))
-						ok("Tunnel to %s:%d started" % (args[1], port))
+						os.system("sudo /sbin/iptables -t nat -A OUTPUT -p tcp -d %s --dport %d -j DNAT --to-destination 127.0.0.1:%d -m comment --comment 'ttmgr:%d'" % (host, port, localport, localport))
+						ok("Tunnel to %s:%d started" % (host, port))
 
 					else: err("error: tunnel not created")
 
-				else: warn("usage: tunnel add <hostname/ip> <port>")
+				else: warn("usage: tunnel add <proxy_nb> <hostname/ip> <port>")
 
 			elif args[0] == 'del':
 				if len(args) == 2:
@@ -383,26 +323,14 @@ class CrappyPrompt(Cmd):
 		print "  exit, ctrl+c                                        exit this program"
 		print ""
 
-	def	help_config(self):
-		print ""
-		print "  config module help"
-		print ""
-		print "  config show                                         show current configuration"
-		print "  config set <key> <value>                            set a configuration setting"
-		print "  config unset <key>                                  unset a configuration setting"
-		if self.level > 1:
-			print "  ..                                                 to upper level"
-		print ""
-
 	def	help_proxy(self):
 		print ""
 		print "  proxy module help"
 		print ""
 		print "  proxy list                                          list defined proxies"
-		print "  proxy add <hostname/ip> <port> [ <user> <pass> ]    set a configuration setting"
+		print "  proxy add <hostname/ip> <port> [ <user> <pass> ]    add a proxy"
 		print "  proxy del <number>                                  delete a proxy"
-		print "  proxy use <number>                                  use this proxy for future actions"
-		print "  proxy set <number> <setting> [ <value> ]            modify an existing proxy configuration"
+		print "  proxy set <number> <setting> [ <value> ]            modify an existing proxy"
 		if self.level > 1:
 			print "  ..                                                  to upper level"
 		print ""
@@ -412,7 +340,7 @@ class CrappyPrompt(Cmd):
 		print "  tunnel module help"
 		print ""
 		print "  tunnel list                                          list active tunnels"
-		print "  tunnel add <hostname/ip> <port>                      create a tunnel"
+		print "  tunnel add <proxy_nb> <hostname/ip> <port>           create a tunnel"
 		print "  tunnel del <number>                                  delete a tunnel"
 		if self.level > 1:
 			print "  ..                                                   to upper level"
@@ -461,8 +389,7 @@ class CrappyPrompt(Cmd):
 			args = self.module[0] +' '+ args
 			self.onecmd(args)
 
-		else:
-			print "** %s: command not found" % args
+		else: warn("%s: command not found" % args)
 
 if __name__	== '__main__':
 
@@ -476,14 +403,13 @@ if __name__	== '__main__':
 For module-specific help, type "help <module>"
 Use ".." to move to upper level
 
-- config          manipulate configuration
 - proxy           manipulate proxy list
 - tunnel          manipulate tunnels
 - sh              run shell commands
 """
 
-	config_load()
-	prompt = CrappyPrompt()
+	db_load()
+	prompt = TtmgrPrompt()
 	prompt.prompt =	bcolors.HDR+'ttmgr> '+ bcolors.ENDC
 
 	if len(sys.argv) == 1:
