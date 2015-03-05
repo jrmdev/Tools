@@ -240,7 +240,7 @@ class TtmgrPrompt(Cmd):
 					
 					# Direct connection
 					else:
-						os.system("/usr/bin/socat TCP4-LISTEN:%d,bind=127.0.0.1,reuseaddr TCP:%s:%d &" % (localport, host, port))
+						os.system("/usr/bin/socat TCP4-LISTEN:%d,bind=127.0.0.1,reuseaddr,fork TCP:%s:%d &" % (localport, host, port))
 
 					# if the socat instance is listening correctly,
 					# create the iptables traffic interception rule
@@ -298,7 +298,7 @@ class TtmgrPrompt(Cmd):
 		else:
 			self.singlecmd('sh')
 	
-	def do_debug(seld, args):
+	def do_debug(self, args):
 		os.system("ps -eao pid,cmd | grep [s]ocat ; sudo iptables -S OUTPUT -t nat | grep -v ^\-P")
 
 	def	do_exit(self, args):
